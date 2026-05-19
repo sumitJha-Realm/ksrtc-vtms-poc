@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/architecture", "dest": "/api/index.js" },
+    { "src": "/playback", "dest": "/api/index.js" },
+    { "src": "/reports", "dest": "/api/index.js" },
+    { "src": "/alerts-page", "dest": "/api/index.js" },
+    { "src": "/enhancements", "dest": "/api/index.js" },
+    { "src": "/guide", "dest": "/api/index.js" },
+    { "src": "/(.*)", "dest": "/public/$1" }
+  ]
+}
