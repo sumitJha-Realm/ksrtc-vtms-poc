@@ -14,7 +14,7 @@ async function connectDB() {
     retryReads: true
   });
   await client.connect();
-  db = client.db(process.env.DB_NAME || 'ksrtc_vtms');
+  db = client.db((process.env.DB_NAME || 'ksrtc_vtms').trim());
   console.log('Connected to MongoDB Atlas, db:', db.databaseName);
   return db;
 }
