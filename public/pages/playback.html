@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Route Playback</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback" class="active">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+  </nav>
+
+  <div class="playback-container">
+    <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+      <div class="form-group">
+        <label>Vehicle ID</label>
+        <select id="vehicleSelect"></select>
+      </div>
+      <div class="form-group">
+        <label>From</label>
+        <input type="datetime-local" id="fromTime" />
+      </div>
+      <div class="form-group">
+        <label>To</label>
+        <input type="datetime-local" id="toTime" />
+      </div>
+      <button class="btn" id="loadPlayback">▶ Load Playback</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:1rem;margin-top:1rem;height:calc(100vh - 280px);">
+      <div class="map-container">
+        <div id="playbackMap"></div>
+      </div>
+      <div class="sidebar">
+        <div class="sidebar-section">
+          <h3>Trip Metadata</h3>
+          <div id="tripMeta">
+            <p style="color:#546e7a;font-size:0.8rem;">Load a playback to see metadata</p>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <h3>Alerts During Trip</h3>
+          <div id="tripAlerts"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Playback Controls -->
+    <div class="playback-controls">
+      <button id="rewindBtn" title="Rewind">⏪</button>
+      <button id="playBtn" title="Play/Pause">▶</button>
+      <button id="ffBtn" title="Fast Forward">⏩</button>
+      <div class="timeline" id="timeline">
+        <div class="timeline-progress" id="timelineProgress"></div>
+      </div>
+      <div class="speed-controls">
+        <button class="speed-btn active" data-speed="1">1x</button>
+        <button class="speed-btn" data-speed="2">2x</button>
+        <button class="speed-btn" data-speed="4">4x</button>
+        <button class="speed-btn" data-speed="10">10x</button>
+      </div>
+    </div>
+    <div class="playback-info">
+      <span>Time: <strong id="currentTime">--</strong></span>
+      <span>Speed: <strong id="currentSpeed">--</strong> km/h</span>
+      <span>Point: <strong id="currentPoint">--</strong></span>
+      <span>Signal: <strong id="signalStatus">--</strong></span>
+      <span>Route: <strong id="deviationStatus">--</strong></span>
+    </div>
+
+    <!-- Playback Legend -->
+    <div style="display:flex;gap:1.5rem;padding:0.5rem 1rem;background:#1a2332;border-radius:6px;margin-top:0.5rem;font-size:0.75rem;color:#b0bec5;flex-wrap:wrap;">
+      <span><span style="display:inline-block;width:14px;height:3px;background:#2196f3;border-top:2px dashed #2196f3;margin-right:4px;"></span> Assigned Route</span>
+      <span><span style="display:inline-block;width:14px;height:3px;background:#4caf50;margin-right:4px;"></span> On Track (Normal)</span>
+      <span><span style="display:inline-block;width:14px;height:3px;background:#ff9800;margin-right:4px;"></span> On Track (Fast)</span>
+      <span><span style="display:inline-block;width:14px;height:3px;background:#ff5722;margin-right:4px;"></span> Overspeeding</span>
+      <span><span style="display:inline-block;width:14px;height:3px;background:#f44336;margin-right:4px;"></span> Off Route / Signal Lost</span>
+      <span>🟢 Route Start</span>
+      <span>🔴 Route End</span>
+      <span>🔵 Bus Stops</span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let playbackMap, points = [], currentIdx = 0, playing = false, speed = 1, timer = null;
+    let marker, trail, routeLine, routeStopsLayer, deviationMarkers = [];
+    let trailSegments = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      playbackMap = L.map('playbackMap').setView([12.9716, 77.5946], 12);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19
+      }).addTo(playbackMap);
+
+      // Load vehicles into dropdown
+      const res = await fetch('/api/vehicles');
+      const data = await res.json();
+      const select = document.getElementById('vehicleSelect');
+      data.vehicles.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.vehicleId;
+        opt.textContent = `${v.vehicleId} (${v.type})`;
+        select.appendChild(opt);
+      });
+
+      // Check URL params
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('vehicle')) {
+        select.value = params.get('vehicle');
+      }
+
+      // Set default time range (last 4 hours)
+      const now = new Date();
+      const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+      document.getElementById('fromTime').value = fourHoursAgo.toISOString().slice(0, 16);
+      document.getElementById('toTime').value = now.toISOString().slice(0, 16);
+
+      // Event listeners
+      document.getElementById('loadPlayback').addEventListener('click', loadPlaybackData);
+      document.getElementById('playBtn').addEventListener('click', togglePlay);
+      document.getElementById('rewindBtn').addEventListener('click', () => seek(-20));
+      document.getElementById('ffBtn').addEventListener('click', () => seek(20));
+      document.getElementById('timeline').addEventListener('click', seekTimeline);
+
+      document.querySelectorAll('.speed-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+          speed = parseInt(e.target.dataset.speed);
+          if (playing) { clearInterval(timer); startTimer(); }
+        });
+      });
+    });
+
+    async function loadPlaybackData() {
+      const vehicleId = document.getElementById('vehicleSelect').value;
+      const from = document.getElementById('fromTime').value;
+      const to = document.getElementById('toTime').value;
+
+      if (!vehicleId || !from || !to) return alert('Select vehicle and time range');
+
+      const res = await fetch(`/api/playback/${vehicleId}?from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`);
+      const data = await res.json();
+      points = data.points;
+
+      if (points.length === 0) return alert('No GPS data found for this period');
+
+      // Clear previous layers
+      if (marker) playbackMap.removeLayer(marker);
+      if (routeLine) playbackMap.removeLayer(routeLine);
+      if (routeStopsLayer) playbackMap.removeLayer(routeStopsLayer);
+      trailSegments.forEach(s => playbackMap.removeLayer(s));
+      trailSegments = [];
+      deviationMarkers.forEach(m => playbackMap.removeLayer(m));
+      deviationMarkers = [];
+
+      // Draw the assigned route track (blue dashed reference line)
+      routeStopsLayer = L.layerGroup().addTo(playbackMap);
+      if (data.routeGeometry) {
+        const routeCoords = data.routeGeometry.coordinates.map(c => [c[1], c[0]]);
+        routeLine = L.polyline(routeCoords, { 
+          color: '#2196f3', weight: 5, opacity: 0.5, dashArray: '12,8',
+          lineCap: 'round'
+        }).addTo(playbackMap);
+
+        // Add start/end markers for route
+        L.circleMarker(routeCoords[0], {
+          radius: 8, color: '#fff', fillColor: '#4caf50', fillOpacity: 1, weight: 2
+        }).bindTooltip('Route Start', { permanent: false }).addTo(routeStopsLayer);
+
+        L.circleMarker(routeCoords[routeCoords.length - 1], {
+          radius: 8, color: '#fff', fillColor: '#f44336', fillOpacity: 1, weight: 2
+        }).bindTooltip('Route End', { permanent: false }).addTo(routeStopsLayer);
+      }
+
+      // Fetch and show bus stops along route
+      try {
+        const vState = await (await fetch(`/api/dashboard/vehicle/${vehicleId}`)).json();
+        if (vState.currentState && vState.currentState.routeId) {
+          const routeData = await (await fetch(`/api/vehicles/routes/${vState.currentState.routeId}`)).json();
+          if (routeData.stops) {
+            routeData.stops.forEach((s, i) => {
+              L.circleMarker([s.location.coordinates[1], s.location.coordinates[0]], {
+                radius: 5, color: '#fff', fillColor: '#64b5f6', fillOpacity: 0.9, weight: 1.5
+              }).bindTooltip(`Stop ${i+1}: ${s.name}`, { permanent: false }).addTo(routeStopsLayer);
+            });
+          }
+        }
+      } catch(e) { /* route stops not critical */ }
+
+      // Pre-compute deviation info for each point (distance from route)
+      if (data.routeGeometry) {
+        const routeCoords = data.routeGeometry.coordinates.map(c => [c[1], c[0]]);
+        points.forEach(pt => {
+          const [lon, lat] = pt.location.coordinates;
+          pt._deviation = getDistToRoute({ lat, lng: lon }, routeCoords);
+          pt._onTrack = pt._deviation < 200; // within 200m = on track
+        });
+      } else {
+        points.forEach(pt => { pt._deviation = 0; pt._onTrack = true; });
+      }
+
+      // Place bus marker at start with directional icon
+      const [lon, lat] = points[0].location.coordinates;
+      marker = L.marker([lat, lon], {
+        icon: createBusIcon(points[0].heading || 0),
+        zIndexOffset: 1000
+      }).addTo(playbackMap);
+
+      // Fit map to show full trip
+      const bounds = L.latLngBounds(points.map(p => [p.location.coordinates[1], p.location.coordinates[0]]));
+      if (routeLine) bounds.extend(routeLine.getBounds());
+      playbackMap.fitBounds(bounds.pad(0.1));
+
+      // Show metadata with deviation stats
+      const offTrackCount = points.filter(p => !p._onTrack).length;
+      const onTrackPct = Math.round(((points.length - offTrackCount) / points.length) * 100);
+      document.getElementById('tripMeta').innerHTML = `
+        <div class="detail-row"><span class="label">Total Points</span><span class="value">${data.totalPoints}</span></div>
+        <div class="detail-row"><span class="label">Duration</span><span class="value">${data.metadata.durationMinutes} min</span></div>
+        <div class="detail-row"><span class="label">Max Speed</span><span class="value">${data.metadata.maxSpeed} km/h</span></div>
+        <div class="detail-row"><span class="label">Avg Speed</span><span class="value">${data.metadata.avgSpeed} km/h</span></div>
+        <div class="detail-row"><span class="label">Signal Gaps</span><span class="value">${data.metadata.signalGaps}</span></div>
+        <div class="detail-row"><span class="label">On Track</span><span class="value" style="color:${onTrackPct > 80 ? '#4caf50' : '#f44336'}">${onTrackPct}%</span></div>
+        <div class="detail-row"><span class="label">Off-Route Points</span><span class="value" style="color:${offTrackCount > 0 ? '#ff9800' : '#4caf50'}">${offTrackCount}</span></div>
+      `;
+
+      // Show alerts
+      document.getElementById('tripAlerts').innerHTML = data.alerts.length > 0 ?
+        data.alerts.map(a => `<div class="alert-item ${a.severity}"><span class="alert-type">${a.type.replace(/_/g,' ')}</span><br><span class="alert-time">${new Date(a.timestamp).toLocaleTimeString()}</span></div>`).join('') :
+        '<p style="color:#546e7a;font-size:0.8rem;">No alerts during this trip</p>';
+
+      currentIdx = 0;
+      renderFrame();
+
+      // Auto-play after loading
+      if (!playing) togglePlay();
+    }
+
+    function createBusIcon(heading) {
+      return L.divIcon({
+        className: 'playback-bus-icon',
+        html: `<div style="
+          width: 22px; height: 22px;
+          display: flex; align-items: center; justify-content: center;
+          transform: rotate(${(heading || 0)}deg);
+        ">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L6 20h12L12 2z" fill="#4fc3f7" stroke="#fff" stroke-width="1.5"/>
+            <circle cx="12" cy="12" r="3" fill="#fff"/>
+          </svg>
+        </div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+    }
+
+    function togglePlay() {
+      playing = !playing;
+      document.getElementById('playBtn').textContent = playing ? '⏸' : '▶';
+      if (playing) startTimer();
+      else clearInterval(timer);
+    }
+
+    function startTimer() {
+      timer = setInterval(() => {
+        if (currentIdx >= points.length - 1) { togglePlay(); return; }
+        currentIdx++;
+        renderFrame();
+      }, 1000 / speed);
+    }
+
+    function seek(delta) {
+      currentIdx = Math.max(0, Math.min(points.length - 1, currentIdx + delta));
+      renderFrame();
+    }
+
+    function seekTimeline(e) {
+      const rect = e.target.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      currentIdx = Math.floor(pct * (points.length - 1));
+      renderFrame();
+    }
+
+    function renderFrame() {
+      if (!points[currentIdx]) return;
+      const pt = points[currentIdx];
+      const [lon, lat] = pt.location.coordinates;
+
+      // Calculate heading dynamically from consecutive points (more accurate than stored heading)
+      let heading = pt.heading || 0;
+      if (currentIdx < points.length - 1) {
+        const next = points[currentIdx + 1].location.coordinates;
+        heading = calcBearing(lat, lon, next[1], next[0]);
+      } else if (currentIdx > 0) {
+        const prev = points[currentIdx - 1].location.coordinates;
+        heading = calcBearing(prev[1], prev[0], lat, lon);
+      }
+
+      // Update bus marker position and rotation
+      marker.setLatLng([lat, lon]);
+      marker.setIcon(createBusIcon(heading));
+
+      // Draw trail segment with color coding:
+      // Red = signal lost, Orange/Red = off-route, Green = on-track & normal speed, Yellow = on-track & high speed
+      if (currentIdx > 0 && !pt.signalLost) {
+        const prev = points[currentIdx - 1].location.coordinates;
+        let color;
+        if (!pt._onTrack) {
+          color = '#f44336'; // Off route = red
+        } else if (pt.speed > 60) {
+          color = '#ff5722'; // Overspeeding = deep orange
+        } else if (pt.speed > 40) {
+          color = '#ff9800'; // Fast = orange
+        } else {
+          color = '#4caf50'; // Normal = green
+        }
+        const seg = L.polyline([[prev[1], prev[0]], [lat, lon]], { 
+          color, weight: 4, opacity: 0.9, lineCap: 'round' 
+        }).addTo(playbackMap);
+        trailSegments.push(seg);
+      } else if (pt.signalLost && currentIdx > 0) {
+        // Draw dashed red line for signal gap
+        const prev = points[currentIdx - 1].location.coordinates;
+        const seg = L.polyline([[prev[1], prev[0]], [lat, lon]], { 
+          color: '#f44336', weight: 2, opacity: 0.5, dashArray: '5,8' 
+        }).addTo(playbackMap);
+        trailSegments.push(seg);
+      }
+
+      // Update info panel
+      document.getElementById('currentTime').textContent = new Date(pt.timestamp).toLocaleTimeString();
+      document.getElementById('currentSpeed').textContent = pt.speed;
+      document.getElementById('currentPoint').textContent = `${currentIdx + 1} / ${points.length}`;
+      
+      // Signal status
+      const signalEl = document.getElementById('signalStatus');
+      signalEl.textContent = pt.signalLost ? '❌ Lost' : '✓ OK';
+      signalEl.style.color = pt.signalLost ? '#f44336' : '#4caf50';
+
+      // Deviation status
+      const devEl = document.getElementById('deviationStatus');
+      if (devEl) {
+        if (pt._onTrack) {
+          devEl.textContent = `✓ On Track (${Math.round(pt._deviation)}m)`;
+          devEl.style.color = '#4caf50';
+        } else {
+          devEl.textContent = `⚠ OFF ROUTE (${Math.round(pt._deviation)}m)`;
+          devEl.style.color = '#f44336';
+        }
+      }
+
+      // Timeline progress
+      document.getElementById('timelineProgress').style.width = `${(currentIdx / (points.length - 1)) * 100}%`;
+
+      // Keep map centered on bus during playback
+      if (playing) {
+        playbackMap.panTo([lat, lon], { animate: true, duration: 0.3 });
+      }
+    }
+
+    // Calculate bearing (degrees) between two lat/lon points
+    function calcBearing(lat1, lon1, lat2, lon2) {
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+      const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+      return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+    }
+
+    // Calculate min distance from point to polyline (meters)
+    function getDistToRoute(latlng, routeCoords) {
+      let minDist = Infinity;
+      for (let i = 0; i < routeCoords.length - 1; i++) {
+        const dist = distToSegment(latlng, routeCoords[i], routeCoords[i + 1]);
+        if (dist < minDist) minDist = dist;
+      }
+      return minDist;
+    }
+
+    function distToSegment(p, a, b) {
+      const pa = { lat: p.lat - a[0], lng: p.lng - a[1] };
+      const ba = { lat: b[0] - a[0], lng: b[1] - a[1] };
+      const denom = ba.lat * ba.lat + ba.lng * ba.lng;
+      if (denom === 0) {
+        const dlat = (p.lat - a[0]) * 111320;
+        const dlng = (p.lng - a[1]) * 111320 * Math.cos(p.lat * Math.PI / 180);
+        return Math.sqrt(dlat * dlat + dlng * dlng);
+      }
+      const t = Math.max(0, Math.min(1, (pa.lat * ba.lat + pa.lng * ba.lng) / denom));
+      const proj = [a[0] + t * ba.lat, a[1] + t * ba.lng];
+      const dlat = (p.lat - proj[0]) * 111320;
+      const dlng = (p.lng - proj[1]) * 111320 * Math.cos(p.lat * Math.PI / 180);
+      return Math.sqrt(dlat * dlat + dlng * dlng);
+    }
+  </script>
+</body>
+</html>

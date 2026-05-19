@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Architecture & Technical Overview</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-bottom: 2px solid #2a3a4a;
+      margin-bottom: 1.5rem;
+      position: sticky;
+      top: 60px;
+      background: #0f1923;
+      z-index: 100;
+      padding-top: 0.5rem;
+    }
+    .tab-btn {
+      padding: 0.7rem 1.2rem;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: #78909c;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: #e0e0e0; background: rgba(255,255,255,0.03); }
+    .tab-btn.active { color: #4fc3f7; border-bottom-color: #4fc3f7; }
+    .tab-content { display: none; animation: fadeIn 0.3s; }
+    .tab-content.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .disclaimer-box {
+      background: rgba(255, 152, 0, 0.1);
+      border: 1px solid #ff9800;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin: 1.5rem 0;
+      font-size: 0.9rem;
+      color: #ffe0b2;
+    }
+    .disclaimer-box strong { color: #ff9800; }
+    .feature-card {
+      background: #1a2332;
+      border: 1px solid #2a3a4a;
+      border-radius: 10px;
+      padding: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    .feature-card h4 { color: #4fc3f7; margin-bottom: 0.5rem; }
+    .feature-card .usecase { color: #b0bec5; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .feature-card code { background: #263238; padding: 2px 6px; border-radius: 4px; font-size: 0.82rem; color: #80cbc4; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1rem; }
+    .badge-ts { background: #1b5e20; color: #a5d6a7; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+    .badge-std { background: #0d47a1; color: #90caf9; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+    .badge-both { background: #4a148c; color: #ce93d8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+    .check-list { list-style: none; padding: 0; }
+    .check-list li { padding: 0.4rem 0; padding-left: 1.5rem; position: relative; color: #b0bec5; font-size: 0.9rem; }
+    .check-list li::before { content: "✓"; position: absolute; left: 0; color: #4caf50; font-weight: bold; }
+    .section-intro { color: #b0bec5; font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture" class="active">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+  </nav>
+
+  <div class="arch-container">
+
+    <!-- TABS NAVIGATION -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="architecture">Architecture</button>
+      <button class="tab-btn" data-tab="demo">PoC Demo & APIs</button>
+      <button class="tab-btn" data-tab="mongodb-features">MongoDB Platform</button>
+      <button class="tab-btn" data-tab="auditing">Auditing & Compliance</button>
+      <button class="tab-btn" data-tab="sizing">Storage & Cluster Tier</button>
+      <button class="tab-btn" data-tab="timeseries">Time Series Features</button>
+      <button class="tab-btn" data-tab="geospatial">Geospatial</button>
+      <button class="tab-btn" data-tab="realtime">Real-Time Processing</button>
+    </div>
+
+    <!-- ======================= TAB 1: ARCHITECTURE ======================= -->
+    <div class="tab-content active" id="tab-architecture">
+      <h2>Solution Architecture</h2>
+      <p class="section-intro">The KSRTC VTMS is built on <strong>MongoDB Atlas</strong>, leveraging Time Series collections for high-velocity GPS telemetry and Standard collections for operational state — delivering a unified platform that eliminates the need for separate databases, message queues, or geospatial engines.</p>
+
+      <h3>Current Architecture (Assumed)</h3>
+      <div class="arch-diagram">
+┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
+│  GPS Devices │────▶│  API Gateway │────▶│  Relational DB   │
+│  (8,000 buses)│     │  (Single)    │     │  (Single Instance)│
+└──────────────┘     └──────────────┘     └──────────────────┘
+                                                    │
+                            ┌───────────────────────┤
+                            ▼                       ▼
+                     ┌────────────┐         ┌────────────┐
+                     │ Dashboard  │         │  Reports   │
+                     │ (Polling)  │         │ (Batch/Cron)│
+                     └────────────┘         └────────────┘
+
+Problems:
+• Single point of failure (SPOF)
+• No horizontal scaling for write throughput
+• GPS data and operational data in same tables — contention
+• No real-time event processing
+• Reports block operational queries
+• No built-in geospatial support
+• Manual data archival needed
+      </div>
+
+      <h3>Proposed Architecture (MongoDB Atlas)</h3>
+      <div class="arch-diagram">
+┌──────────────┐     ┌────────────────────────────────────────────────────────┐
+│  GPS Devices │     │              INGESTION LAYER                            │
+│  8,000 buses │────▶│  Load-Balanced App Servers (Node.js × 3)              │
+│  10s interval │     │  • Write to gps_events (Time Series)                  │
+└──────────────┘     │  • Upsert vehicle_current_state (Standard)            │
+                     │  • Publish to Change Stream consumers                  │
+                     └───────────────────────┬────────────────────────────────┘
+                                             │
+                     ┌───────────────────────┼────────────────────────────────┐
+                     │           MONGODB ATLAS CLUSTER                         │
+                     │                                                         │
+                     │  ┌─────────────────────────────────────────────────┐   │
+                     │  │  PRIMARY NODE          Cluster Tier              │   │
+                     │  │  ┌────────────────┐  ┌─────────────────────┐   │   │
+                     │  │  │  gps_events    │  │ vehicle_current_state│   │   │
+                     │  │  │  (Time Series) │  │ vehicles, routes,    │   │   │
+                     │  │  │  70M docs/day  │  │ stops, geofences,    │   │   │
+                     │  │  │  Auto-bucketed │  │ schedules, alerts    │   │   │
+                     │  │  │  10x compress  │  │ (Standard)           │   │   │
+                     │  │  │  90-day TTL    │  │ 2dsphere indexes     │   │   │
+                     │  │  └────────────────┘  └─────────────────────┘   │   │
+                     │  └─────────────────────────────────────────────────┘   │
+                     │                                                         │
+                     │  ┌─────────────────┐  ┌──────────────────────────┐    │
+                     │  │ SECONDARY (AZ2) │  │ ANALYTICS NODE (Reports) │    │
+                     │  │ Auto-failover   │  │ Isolated read workload   │    │
+                     │  └─────────────────┘  └──────────────────────────┘    │
+                     │                                                         │
+                     │  ┌─────────────────────────────────────────────────┐   │
+                     │  │ SECONDARY (DR Region) — DR/BCP Read Replica     │   │
+                     │  └─────────────────────────────────────────────────┘   │
+                     └─────────────────────────────────────────────────────────┘
+                                             │
+              ┌──────────────────────────────┼──────────────────────────────┐
+              │                              │                              │
+              ▼                              ▼                              ▼
+┌──────────────────────┐    ┌──────────────────────┐    ┌─────────────────────┐
+│  CHANGE STREAM       │    │   DASHBOARD          │    │   REPORTS ENGINE    │
+│  CONSUMERS           │    │   (Web App)          │    │   (Analytics Node)  │
+│  • Geofence checks   │    │   • Polls every 3s   │    │   • Aggregation     │
+│  • Alert generation  │    │   • Map view         │    │     pipelines       │
+│  • ETA calculation   │    │   • Vehicle detail   │    │   • Window functions│
+│  • Speed monitoring  │    │   • Route playback   │    │   • Export to       │
+│  • Behavior analysis │    │                      │    │     Excel/PDF       │
+└──────────────────────┘    └──────────────────────┘    └─────────────────────┘
+      </div>
+
+      <h3>Data Model — Time Series vs Standard</h3>
+      <table class="arch-table">
+        <thead><tr><th>Aspect</th><th>Time Series Collection</th><th>Standard Collection</th></tr></thead>
+        <tbody>
+          <tr><td>Data Nature</td><td>Machine-generated, continuous, immutable</td><td>Human/system managed, mutable</td></tr>
+          <tr><td>Write Pattern</td><td>Insert-only, never update</td><td>Insert + frequent updates</td></tr>
+          <tr><td>Volume</td><td>70 million/day (99.5% of all data)</td><td>~200K/day (0.5%)</td></tr>
+          <tr><td>Query Pattern</td><td>Always time-range + vehicle filter</td><td>Any field: ID, status, location</td></tr>
+          <tr><td>Retention</td><td>Auto-expire after 90 days (TTL)</td><td>Kept indefinitely</td></tr>
+          <tr><td>Optimization</td><td>Auto bucketing, columnar compression</td><td>B-tree + 2dsphere indexes</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Collection Map</h3>
+      <table class="arch-table">
+        <thead><tr><th>Collection</th><th>Type</th><th>Purpose</th><th>Daily Volume</th></tr></thead>
+        <tbody>
+          <tr><td><strong>gps_events</strong></td><td><span class="badge-ts">Time Series</span></td><td>Every GPS ping — coordinates, speed, heading, ignition</td><td>70M</td></tr>
+          <tr><td><strong>vehicle_current_state</strong></td><td><span class="badge-std">Standard</span></td><td>Latest position/status per vehicle (upserted every 10s)</td><td>8K upserts/10s</td></tr>
+          <tr><td><strong>vehicles</strong></td><td><span class="badge-std">Standard</span></td><td>Bus master — registration, make, model, depot</td><td>—</td></tr>
+          <tr><td><strong>routes</strong></td><td><span class="badge-std">Standard</span></td><td>Route definitions — GeoJSON LineString + ordered stops</td><td>—</td></tr>
+          <tr><td><strong>bus_stops</strong></td><td><span class="badge-std">Standard</span></td><td>Stop master — GeoJSON Point, associated routes</td><td>—</td></tr>
+          <tr><td><strong>geofences</strong></td><td><span class="badge-std">Standard</span></td><td>Depot boundaries, school zones — GeoJSON Polygon</td><td>—</td></tr>
+          <tr><td><strong>schedules</strong></td><td><span class="badge-std">Standard</span></td><td>Trip schedules — vehicle × route × expected times</td><td>—</td></tr>
+          <tr><td><strong>alerts</strong></td><td><span class="badge-std">Standard</span></td><td>All events — overspeed, panic, geofence violations</td><td>~100K</td></tr>
+          <tr><td><strong>audit_logs</strong></td><td><span class="badge-std">Standard</span></td><td>System audit trail — who did what when</td><td>~10K</td></tr>
+          <tr><td><strong>depots</strong></td><td><span class="badge-std">Standard</span></td><td>Depot/division metadata</td><td>—</td></tr>
+          <tr><td><strong>gps_devices</strong></td><td><span class="badge-std">Standard</span></td><td>Device master — IMEI, firmware, vehicle mapping</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ======================= TAB 2: TIME SERIES FEATURES ======================= -->
+    <div class="tab-content" id="tab-timeseries">
+      <h2>Time Series Features — Use Case Mapping</h2>
+      <p class="section-intro">MongoDB Time Series collections provide purpose-built optimizations for VTMS telemetry. Below are the specific features and how each directly addresses a KSRTC use case.</p>
+
+      <h3>Core Time Series Capabilities</h3>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🗂️ Automatic Data Bucketing</h4>
+          <div class="usecase"><strong>Use Case:</strong> Ingest 70M GPS pings/day without performance degradation</div>
+          <p>MongoDB groups GPS pings from the same vehicle into internal "buckets" covering minutes of data per bucket. Metadata (vehicleId) stored once per bucket, not per document.</p>
+          <ul class="check-list">
+            <li>10x storage reduction — 14 GB/day raw → ~1.4 GB compressed</li>
+            <li>Faster range queries — scanning buckets, not individual docs</li>
+            <li>Zero application-level logic needed — fully automatic</li>
+          </ul>
+        </div>
+
+        <div class="feature-card">
+          <h4>⏰ TTL Auto-Expiry</h4>
+          <div class="usecase"><strong>Use Case:</strong> Retain GPS data for exactly 90 days, no manual cleanup</div>
+          <p><code>expireAfterSeconds: 7776000</code> — MongoDB automatically deletes data older than 90 days. No cron jobs, no partition management, no storage runaway.</p>
+          <ul class="check-list">
+            <li>Storage stays constant at ~150 GB (90-day window)</li>
+            <li>Compliance-friendly — guaranteed expiry</li>
+            <li>Zero operational overhead</li>
+          </ul>
+        </div>
+
+        <div class="feature-card">
+          <h4>📊 Columnar Compression</h4>
+          <div class="usecase"><strong>Use Case:</strong> Minimize storage cost for massive telemetry data</div>
+          <p>Time Series collections use columnar compression (zstd) within each bucket — similar values across GPS readings (same coordinates area, similar speeds) compress extremely well.</p>
+          <ul class="check-list">
+            <li>~90% compression ratio on GPS data</li>
+            <li>Lower IOPS for range scans (less data to read)</li>
+            <li>No decompression overhead for queries (read-optimized)</li>
+          </ul>
+        </div>
+
+        <div class="feature-card">
+          <h4>🔍 Secondary Indexes on Time Series</h4>
+          <div class="usecase"><strong>Use Case:</strong> Query historical GPS by location (geofence history)</div>
+          <p>Time Series collections support secondary indexes including <code>2dsphere</code>. This enables queries like "all buses that passed through zone X between 2-4 PM".</p>
+          <ul class="check-list">
+            <li>2dsphere index on location field</li>
+            <li>Compound index on time + location</li>
+            <li>Speeds up historical geospatial queries from seconds to ms</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Window Functions ($setWindowFields) — Feature-by-Feature</h3>
+      <p class="section-intro">Window functions run computations across ordered sequences of GPS documents <em>inside the database</em>, eliminating the need to transfer millions of records to the application layer.</p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🚨 Harsh Braking / Acceleration Detection</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Detect unsafe driving behavior in real-time</div>
+          <p>Compares speed at time T with T-10s using <code>$shift</code>. Calculates acceleration: <code>(speed₂ - speed₁) / Δt</code>. Threshold: ±4 m/s².</p>
+          <p><strong>Operator:</strong> <code>$shift(output: '$speed', by: -1)</code> + <code>$dateDiff</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🛑 Unauthorized Stop Detection</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Detect stops >3 min outside scheduled locations</div>
+          <p>Counts consecutive pings where speed ≤ 2 km/h using a sliding window of 18 readings (3 minutes at 10s intervals). If all 18 are stationary → unauthorized stop.</p>
+          <p><strong>Operator:</strong> <code>$sum</code> with window <code>[-17, 0]</code> (documents range)</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>📡 Signal Gap / Loss Detection</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Track GPS device connectivity, show gaps in playback</div>
+          <p>Computes seconds between consecutive pings. If gap > 30s → signal lost marker. Used in route playback to show dashed lines where GPS signal was lost.</p>
+          <p><strong>Operator:</strong> <code>$shift(output: '$timestamp', by: -1)</code> + <code>$dateDiff(unit: 'second')</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>⚡ Sustained Overspeed</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Distinguish real overspeed from GPS jitter</div>
+          <p>Averages speed over 30-second window. Only triggers if <em>average</em> exceeds limit — eliminates false positives from single erroneous GPS readings.</p>
+          <p><strong>Operator:</strong> <code>$avg</code> with time range window <code>[-30, 0] seconds</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>📍 ETA Prediction</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Dynamic ETA recalculated per GPS ping</div>
+          <p>Exponential moving average weights recent speeds higher than older ones, providing a smoothed velocity that accounts for current traffic conditions.</p>
+          <p><strong>Operator:</strong> <code>$expMovingAvg(N: 10)</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🔧 Breakdown Inference</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Auto-detect breakdowns from telemetry patterns</div>
+          <p>If average AND max speed = 0 for 5+ minutes after prior movement → breakdown candidate. Combined with ignition=ON to distinguish from scheduled stops.</p>
+          <p><strong>Operator:</strong> <code>$avg + $max</code> with 5-minute range window</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🗺️ Route Playback with Context</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> 90-day route replay with speed/gap visualization</div>
+          <p>Simple time-range query returns all GPS breadcrumbs. Window functions enrich each point with gap detection and speed delta — frontend animates with color-coded trail.</p>
+          <p><strong>Query:</strong> <code>{ vehicleId, timestamp: { $gte, $lte } }</code> + <code>$setWindowFields</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🚏 Stop Skipping Detection</h4>
+          <div class="usecase"><strong>RFP Requirement:</strong> Detect when bus skips a scheduled stop</div>
+          <p>Compares sequence of stops visited (detected via proximity check) against scheduled stop sequence. Missing entries = skipped stops.</p>
+          <p><strong>Operator:</strong> <code>$setWindowFields</code> for sequence ordering + application-layer comparison</p>
+        </div>
+      </div>
+
+      <h3>Reports Powered by Time Series</h3>
+      <table class="arch-table">
+        <thead><tr><th>Report</th><th>Time Series Feature</th><th>MongoDB Technique</th></tr></thead>
+        <tbody>
+          <tr><td>Vehicle Tracking Summary</td><td>Bucketing + Range Queries</td><td>$group by vehicleId + day, $avg/$max speed</td></tr>
+          <tr><td>Schedule Adherence</td><td>Window Functions + $lookup</td><td>Detect stops via $setWindowFields + compare to schedule</td></tr>
+          <tr><td>Harsh Driving Events</td><td>Window Functions</td><td>$shift for previous speed + acceleration calc</td></tr>
+          <tr><td>Unauthorized Stops</td><td>Sliding Window</td><td>$sum with document range [-17, 0]</td></tr>
+          <tr><td>Route Playback</td><td>Range Query + Windows</td><td>Time range + $shift for gap detection</td></tr>
+          <tr><td>Bus Stop Skipping</td><td>Sequence Detection</td><td>$setWindowFields ordering + proximity match</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ======================= TAB 3: MONGODB PLATFORM FEATURES ======================= -->
+    <div class="tab-content" id="tab-mongodb-features">
+      <h2>MongoDB Atlas Platform Capabilities</h2>
+      <p class="section-intro">Beyond Time Series, MongoDB Atlas provides enterprise platform features that address KSRTC's requirements for availability, scaling, disaster recovery, and operational simplicity.</p>
+
+      <h3>Auto-Scaling</h3>
+      <div class="feature-card">
+        <h4>📈 Compute Auto-Scaling</h4>
+        <div class="usecase"><strong>Use Case:</strong> Handle peak-hour GPS spikes (morning/evening rush) without over-provisioning</div>
+        <ul class="check-list">
+          <li>Automatically scales cluster tier up/down based on CPU, memory, IOPS thresholds</li>
+          <li>Configurable min/max tier bounds (e.g., M50–M80 range)</li>
+          <li>Scales within minutes — no downtime, no manual intervention</li>
+          <li>Handles 2x peak traffic (morning departure wave: ~12,000 writes/sec vs avg 8,000)</li>
+        </ul>
+      </div>
+
+      <div class="feature-card">
+        <h4>💾 Storage Auto-Scaling</h4>
+        <div class="usecase"><strong>Use Case:</strong> Storage grows with data without pre-provisioning disks</div>
+        <ul class="check-list">
+          <li>Atlas automatically extends storage when usage exceeds threshold</li>
+          <li>Combined with TTL — storage remains bounded after initial 90-day fill</li>
+          <li>No DBA intervention needed</li>
+        </ul>
+      </div>
+
+      <h3>Disaster Recovery & Business Continuity (DR/BCP)</h3>
+      <div class="feature-card">
+        <h4>🛡️ High Availability & DR Architecture</h4>
+        <div class="usecase"><strong>RFP Requirement:</strong> 99% availability, zero SPOF, disaster recovery</div>
+        <div class="feature-grid">
+          <div>
+            <h4 style="color:#e0e0e0;font-size:0.9rem;">Within Region (HA)</h4>
+            <ul class="check-list">
+              <li>3-node replica set across 2 Availability Zones</li>
+              <li>Automatic failover in 10-30 seconds</li>
+              <li>Atlas SLA: 99.995% uptime guarantee</li>
+              <li>Self-healing — failed nodes auto-replaced</li>
+              <li>Rolling upgrades — zero downtime patches</li>
+            </ul>
+          </div>
+          <div>
+            <h4 style="color:#e0e0e0;font-size:0.9rem;">Cross-Region (DR)</h4>
+            <ul class="check-list">
+              <li>Read-only replica in DR region (e.g., Hyderabad)</li>
+              <li>Asynchronous replication (typical lag < 1s)</li>
+              <li>Can promote to primary in disaster scenario</li>
+              <li>Continuous backup with cross-region snapshots</li>
+              <li>Point-in-time restore: 1-second granularity</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <h4>🔄 Backup & Restore</h4>
+        <div class="usecase"><strong>Use Case:</strong> Accidental data deletion, corruption recovery, compliance</div>
+        <ul class="check-list">
+          <li>Continuous backup — every oplog entry captured</li>
+          <li>Point-in-time restore to any second within retention window</li>
+          <li>Retention: 7 days continuous + monthly snapshots for 1 year</li>
+          <li>Cross-region snapshot copies for DR</li>
+          <li>Restore to new cluster for testing/validation</li>
+        </ul>
+      </div>
+
+      <h3>Sharding (Horizontal Scaling)</h3>
+      <div class="feature-card">
+        <h4>📐 Sharded Cluster for 2x+ Growth</h4>
+        <div class="usecase"><strong>RFP Requirement:</strong> System must scale to 2x the initial fleet size</div>
+        <ul class="check-list">
+          <li>Shard key: <code>{ "metadata.vehicleId": "hashed", "timestamp": 1 }</code></li>
+          <li>Distributes write load evenly across shards</li>
+          <li>Time-range queries target specific chunks (range component)</li>
+          <li>Atlas auto-balances data across shards</li>
+          <li>Enable at 1 TB storage or 15K writes/sec threshold</li>
+        </ul>
+        <p style="margin-top:0.5rem;color:#78909c;font-size:0.85rem;"><strong>Current capacity without sharding:</strong> Single replica set handles ~8,000 writes/sec comfortably. Sharding needed only at 2x fleet (16,000+ buses).</p>
+      </div>
+
+      <h3>Analytics Nodes</h3>
+      <div class="feature-card">
+        <h4>📊 Workload Isolation</h4>
+        <div class="usecase"><strong>Use Case:</strong> Heavy reporting queries must not impact live dashboard/tracking</div>
+        <ul class="check-list">
+          <li>Dedicated read-only nodes for reporting workloads</li>
+          <li>Custom read preference routes report queries to analytics nodes</li>
+          <li>Live tracking (Primary) remains unaffected by heavy aggregations</li>
+          <li>Can be different tier than primary (cost optimization)</li>
+        </ul>
+      </div>
+
+      <h3>Connection Management</h3>
+      <div class="feature-card">
+        <h4>🔗 5,000 Concurrent Connections</h4>
+        <div class="usecase"><strong>RFP Requirement:</strong> Support 5,000 concurrent connections</div>
+        <ul class="check-list">
+          <li>M50 tier supports 16,000 connections per node</li>
+          <li>Driver connection pooling: maxPoolSize=100 per app server</li>
+          <li>3 app servers × 100 = 300 DB connections (leaves 15,700 headroom)</li>
+          <li>Application-level connection pooling for 5K+ dashboard users</li>
+        </ul>
+      </div>
+
+      <h3>Security</h3>
+      <div class="feature-card">
+        <h4>🔐 Enterprise Security</h4>
+        <ul class="check-list">
+          <li>Encryption at rest (AES-256) and in-transit (TLS 1.2+)</li>
+          <li>VPC peering / Private endpoints — no public internet exposure</li>
+          <li>IP whitelist + SCRAM-SHA-256 authentication</li>
+          <li>Role-based access control (RBAC) — granular DB/collection permissions</li>
+          <li>LDAP/SSO integration for enterprise auth</li>
+          <li>Audit logging (Database-level access tracking)</li>
+          <li>Field-level encryption for sensitive data (PAN, Aadhaar if stored)</li>
+        </ul>
+      </div>
+
+      <h3>Monitoring & Alerting</h3>
+      <div class="feature-card">
+        <h4>📡 Built-in Observability</h4>
+        <ul class="check-list">
+          <li>Real-time performance metrics (ops/sec, latency, connections, disk)</li>
+          <li>Query Performance Advisor — auto-suggests missing indexes</li>
+          <li>Custom alerts: replication lag > 10s, connections > 80%, disk > 80%</li>
+          <li>Integration with PagerDuty, Slack, email for incident management</li>
+          <li>Query profiler — identifies slow queries for optimization</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ======================= TAB 4: GEOSPATIAL ======================= -->
+    <div class="tab-content" id="tab-geospatial">
+      <h2>Geospatial Capabilities</h2>
+      <p class="section-intro">MongoDB provides native geospatial support with 2dsphere indexes — no external GIS database or library needed for most operations. The VTMS uses a hybrid approach: MongoDB for persistent queries and in-memory turf.js for high-throughput hot-path checks.</p>
+
+      <h3>Implementation by Use Case</h3>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>📍 Point-in-Polygon (Geofence Check)</h4>
+          <div class="usecase"><strong>Requirement:</strong> 800 checks/second as buses enter/exit zones</div>
+          <p><strong>Approach:</strong> In-memory using turf.js (geofences cached at startup). Each GPS ping is checked against all relevant polygons in < 0.1ms.</p>
+          <p><strong>Why not MongoDB:</strong> At 800/sec, network round-trip to DB would add latency. In-memory PIP is 100x faster for the hot path.</p>
+          <p><strong>MongoDB role:</strong> Stores geofence definitions. Loaded into app memory on startup + refreshed on change.</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🛤️ Route Corridor Deviation</h4>
+          <div class="usecase"><strong>Requirement:</strong> Detect when bus deviates from assigned route</div>
+          <p><strong>Approach:</strong> <code>turf.nearestPointOnLine(routeGeometry, busPosition)</code> — calculates perpendicular distance from bus to route LineString.</p>
+          <p><strong>Threshold:</strong> > 200m from nearest point on route = deviation alert.</p>
+          <p><strong>MongoDB role:</strong> Stores route geometries as GeoJSON LineString. <code>$geoNear</code> for ad-hoc corridor queries.</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🚏 Stop Arrival / Departure / Skip</h4>
+          <div class="usecase"><strong>Requirement:</strong> Detect when bus arrives, departs, or skips stops</div>
+          <p><strong>Approach:</strong> Proximity check — if bus is within 50m of a scheduled stop for 10+ seconds = arrival. Sequence-aware: compares visited stops against schedule.</p>
+          <p><strong>MongoDB role:</strong> <code>$nearSphere</code> for nearest stop lookup. Schedule comparison via $lookup in aggregation.</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>📱 Nearest Bus Stop (Passenger App)</h4>
+          <div class="usecase"><strong>Requirement:</strong> Show closest stops to passenger's GPS location</div>
+          <p><strong>Approach:</strong> Pure MongoDB query using <code>$nearSphere</code> with 2dsphere index on bus_stops collection.</p>
+          <p><strong>Performance:</strong> < 3ms response, results sorted by distance automatically.</p>
+          <p><strong>Query:</strong> <code>db.bus_stops.find({ location: { $nearSphere: { $geometry: point, $maxDistance: radius } } })</code></p>
+        </div>
+
+        <div class="feature-card">
+          <h4>🚍 Vehicles in Zone (Real-Time)</h4>
+          <div class="usecase"><strong>Requirement:</strong> Show all buses currently inside a specific geofence</div>
+          <p><strong>Approach:</strong> Query vehicle_current_state (8K docs max) with PIP check against geofence polygon. Uses in-memory turf.js for speed.</p>
+          <p><strong>Alternative:</strong> <code>$geoWithin</code> on vehicle_current_state.location — < 5ms for 8K docs with 2dsphere index.</p>
+        </div>
+
+        <div class="feature-card">
+          <h4>📜 Historical Zone Query</h4>
+          <div class="usecase"><strong>Requirement:</strong> Which buses passed through zone X between 2-4 PM yesterday?</div>
+          <p><strong>Approach:</strong> Query gps_events (Time Series) with compound filter: time range + <code>$geoWithin</code> polygon.</p>
+          <p><strong>Performance:</strong> ~50ms with compound index (timestamp + 2dsphere).</p>
+        </div>
+      </div>
+
+      <h3>Performance Summary</h3>
+      <table class="arch-table">
+        <thead><tr><th>Operation</th><th>Engine</th><th>Latency</th><th>Throughput</th></tr></thead>
+        <tbody>
+          <tr><td>Point-in-Polygon (hot path)</td><td>turf.js (in-memory)</td><td>< 0.1ms</td><td>10,000+/sec</td></tr>
+          <tr><td>Route deviation check</td><td>turf.js (in-memory)</td><td>< 0.5ms</td><td>2,000+/sec</td></tr>
+          <tr><td>Nearest bus stop</td><td>MongoDB $nearSphere</td><td>< 3ms</td><td>5,000/sec</td></tr>
+          <tr><td>Vehicles in zone</td><td>MongoDB $geoWithin</td><td>< 5ms</td><td>1,000/sec</td></tr>
+          <tr><td>Historical zone query</td><td>MongoDB Time Series + 2dsphere</td><td>~50ms</td><td>50/sec</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ======================= TAB 5: REAL-TIME PROCESSING ======================= -->
+    <div class="tab-content" id="tab-realtime">
+      <h2>Real-Time Event Processing</h2>
+      <p class="section-intro">MongoDB Change Streams provide a real-time event bus for the VTMS — every GPS write triggers downstream processing without external message queues, reducing infrastructure complexity.</p>
+
+      <h3>Change Stream Architecture</h3>
+      <div class="arch-diagram">
+GPS Ping Arrives
+        │
+        ├──▶ 1. Insert into gps_events (Time Series)
+        │
+        ├──▶ 2. Upsert vehicle_current_state (Standard)
+        │         │
+        │         │  MongoDB Change Stream (oplog tailing)
+        │         │  Latency: 50-200ms from write
+        │         ▼
+        │    ┌─────────────────────────────────────────┐
+        │    │        CHANGE STREAM CONSUMER           │
+        │    │                                         │
+        │    │  1. Receive vehicle state update        │
+        │    │  2. In-memory geofence check (turf.js)  │
+        │    │     ├── Inside speed zone?              │
+        │    │     │   └── Check speed vs zone limit   │
+        │    │     └── Entered/exited depot?           │
+        │    │         └── Log entry/exit event        │
+        │    │  3. Overspeed check (speed > route limit)│
+        │    │  4. Write alert to alerts collection    │
+        │    │  5. Future: ETA recalculation           │
+        │    │  6. Future: Driver behavior scoring     │
+        │    └─────────────────────────────────────────┘
+        │         │
+        │         ▼
+        │    alerts collection ──▶ Dashboard polls every 3s
+        │
+        └──▶ 3. Dashboard polls vehicle_current_state (3s)
+      </div>
+
+      <h3>Why Change Streams (vs Alternatives)</h3>
+      <table class="arch-table">
+        <thead><tr><th>Approach</th><th>Latency</th><th>Infra Needed</th><th>Resume Support</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Change Streams ✓</strong></td><td>50-200ms</td><td>None (built-in)</td><td>Resume tokens</td><td>Best for PoC + moderate scale</td></tr>
+          <tr><td>Kafka/Redis Streams</td><td>< 10ms</td><td>Separate cluster</td><td>Consumer offsets</td><td>Production at 2x+ scale</td></tr>
+          <tr><td>Application-level fan-out</td><td>< 5ms</td><td>None</td><td>Manual</td><td>Tight coupling, hard to maintain</td></tr>
+          <tr><td>Polling</td><td>Poll interval</td><td>None</td><td>N/A</td><td>Only for dashboard display</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Events Processed</h3>
+      <table class="arch-table">
+        <thead><tr><th>Event Type</th><th>Detection Logic</th><th>Alert Severity</th><th>Latency (end-to-end)</th></tr></thead>
+        <tbody>
+          <tr><td>Overspeed</td><td>speed > route limit (60 km/h default)</td><td>Medium</td><td>< 1s from GPS ping</td></tr>
+          <tr><td>Geofence Speed Violation</td><td>PIP check + zone speed limit exceeded</td><td>Medium/High</td><td>< 1s</td></tr>
+          <tr><td>Geofence Entry/Exit</td><td>PIP state change detection</td><td>Low</td><td>< 1s</td></tr>
+          <tr><td>Panic Button</td><td>panic=true in GPS payload</td><td>Critical</td><td>< 500ms</td></tr>
+          <tr><td>Breakdown (future)</td><td>Speed=0 + ignition=ON for 5+ min</td><td>High</td><td>~5 min detection delay</td></tr>
+        </tbody>
+      </table>
+
+      <div class="arch-highlight">
+        <strong>Production Scaling Note:</strong> For 2x fleet size, we recommend adding a Kafka layer between ingestion and processing. The ingestion service writes to MongoDB AND publishes to Kafka simultaneously, giving sub-10ms processing latency and enabling multiple independent consumers.
+      </div>
+    </div>
+
+    <!-- ======================= TAB 6: AUDITING & COMPLIANCE ======================= -->
+    <div class="tab-content" id="tab-auditing">
+      <h2>Auditing & Compliance</h2>
+      <p class="section-intro">VTMS handles sensitive operational data and government fleet management. MongoDB Atlas provides multiple layers of auditing and compliance controls.</p>
+
+      <h3>Application-Level Audit Trail</h3>
+      <div class="feature-card">
+        <h4>📋 audit_logs Collection</h4>
+        <div class="usecase"><strong>Purpose:</strong> Track every operational action — who did what, when, from where</div>
+        <ul class="check-list">
+          <li>Every alert acknowledgment/closure logged with userId, timestamp, IP</li>
+          <li>Schedule changes, route modifications, vehicle reassignments tracked</li>
+          <li>Geofence configuration changes captured</li>
+          <li>TTL index: auto-expires after 1 year (31,536,000 seconds)</li>
+          <li>Append-only design — no updates/deletes on audit records</li>
+        </ul>
+        <p style="margin-top:0.5rem;"><strong>Schema Example:</strong></p>
+        <div class="arch-diagram" style="font-size:0.8rem;">
+{
+  "auditId": "AUD-20260519-00001",
+  "action": "alert_acknowledged",
+  "userId": "operator_101",
+  "targetEntity": { "type": "alert", "id": "ALT-OS-12345" },
+  "details": { "previousStatus": "active", "newStatus": "acknowledged" },
+  "timestamp": ISODate("2026-05-19T10:30:00Z"),
+  "ipAddress": "10.0.1.45",
+  "userAgent": "VTMS Dashboard/1.0"
+}
+        </div>
+      </div>
+
+      <h3>Database-Level Auditing (Atlas)</h3>
+      <div class="feature-card">
+        <h4>🔍 Atlas Database Auditing</h4>
+        <div class="usecase"><strong>Purpose:</strong> Track all database access at the infrastructure level</div>
+        <ul class="check-list">
+          <li>Authentication events — successful/failed login attempts</li>
+          <li>Authorization events — role changes, privilege escalations</li>
+          <li>DDL events — collection creation, index changes, drops</li>
+          <li>DML events — configurable per collection (reads/writes)</li>
+          <li>Logs shipped to Atlas UI + exportable to SIEM (Splunk, ELK)</li>
+        </ul>
+      </div>
+
+      <h3>Data Governance</h3>
+      <div class="feature-card">
+        <h4>📜 Retention & Lifecycle Policies</h4>
+        <table class="arch-table">
+          <thead><tr><th>Data Type</th><th>Retention</th><th>Mechanism</th><th>Compliance</th></tr></thead>
+          <tbody>
+            <tr><td>GPS Telemetry</td><td>90 days (hot)</td><td>Time Series TTL</td><td>Government data retention policy</td></tr>
+            <tr><td>GPS Telemetry (archive)</td><td>2 years (cold)</td><td>Online Archive → S3</td><td>Legal hold / accident investigation</td></tr>
+            <tr><td>Audit Logs</td><td>1 year</td><td>TTL index</td><td>Operational audit requirement</td></tr>
+            <tr><td>Alert History</td><td>1 year</td><td>TTL index</td><td>Safety compliance</td></tr>
+            <tr><td>Master Data</td><td>Indefinite</td><td>No TTL</td><td>Operational necessity</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Access Control</h3>
+      <div class="feature-card">
+        <h4>👥 Role-Based Access (RBAC)</h4>
+        <table class="arch-table">
+          <thead><tr><th>Role</th><th>Access Level</th><th>Collections</th></tr></thead>
+          <tbody>
+            <tr><td>Admin</td><td>Full CRUD + DDL</td><td>All</td></tr>
+            <tr><td>Operator</td><td>Read all + Write alerts/audit</td><td>All (read), alerts, audit_logs (write)</td></tr>
+            <tr><td>Report Viewer</td><td>Read only</td><td>gps_events, vehicles, routes, alerts</td></tr>
+            <tr><td>Device Manager</td><td>CRUD devices + vehicles</td><td>gps_devices, vehicles</td></tr>
+            <tr><td>App Service (GPS ingestion)</td><td>Insert + upsert only</td><td>gps_events, vehicle_current_state</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Encryption & Data Protection</h3>
+      <div class="feature-card">
+        <h4>🔒 Multi-Layer Encryption</h4>
+        <ul class="check-list">
+          <li><strong>In Transit:</strong> TLS 1.2+ for all client-to-Atlas and intra-cluster communication</li>
+          <li><strong>At Rest:</strong> AES-256 encryption with cloud provider KMS (AWS KMS / Azure Key Vault)</li>
+          <li><strong>Field-Level (CSFLE):</strong> Client-side encryption for sensitive fields (driver PAN, contact info)</li>
+          <li><strong>Backup Encryption:</strong> All snapshots encrypted with same KMS keys</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ======================= TAB 7: STORAGE & CLUSTER TIER ======================= -->
+    <div class="tab-content" id="tab-sizing">
+      <h2>Storage & Cluster Tier</h2>
+
+      <div class="disclaimer-box">
+        <strong>⚠️ Important Note:</strong> The storage estimates, cluster tier, and infrastructure sizing below are <strong>assumed/indicative</strong> based on stated fleet size (8,000 buses, 10s GPS interval). <strong>Final sizing will be provided after a detailed sizing exercise</strong> considering actual GPS payload size, query patterns, peak-to-average ratios, report concurrency, and growth projections. MongoDB Solutions Architecture team will conduct this exercise during the implementation planning phase.
+      </div>
+
+      <h3>Storage Estimation (Assumed)</h3>
+      <table class="arch-table">
+        <thead><tr><th>Component</th><th>Calculation</th><th>Daily</th><th>90-Day (Hot)</th><th>Annual</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>GPS Events (raw)</strong></td>
+            <td>8,000 buses × 8,640 pings/day × ~200 bytes/ping</td>
+            <td>~13.8 GB</td>
+            <td>~1.24 TB</td>
+            <td>~5 TB</td>
+          </tr>
+          <tr>
+            <td><strong>GPS Events (compressed)</strong></td>
+            <td>~10x Time Series compression</td>
+            <td>~1.4 GB</td>
+            <td>~126 GB</td>
+            <td>~500 GB</td>
+          </tr>
+          <tr>
+            <td><strong>Indexes (gps_events)</strong></td>
+            <td>~15% of compressed data</td>
+            <td>—</td>
+            <td>~19 GB</td>
+            <td>~75 GB</td>
+          </tr>
+          <tr>
+            <td><strong>Standard Collections</strong></td>
+            <td>vehicles + routes + stops + schedules + etc.</td>
+            <td>—</td>
+            <td>~2 GB</td>
+            <td>~5 GB</td>
+          </tr>
+          <tr>
+            <td><strong>Alerts (1-year retention)</strong></td>
+            <td>~100K alerts/day × 365 days × ~500 bytes</td>
+            <td>~50 MB</td>
+            <td>—</td>
+            <td>~18 GB</td>
+          </tr>
+          <tr style="background:#1a2332;font-weight:bold;">
+            <td><strong>TOTAL (Hot Storage)</strong></td>
+            <td>—</td>
+            <td>~1.5 GB/day</td>
+            <td>~150 GB</td>
+            <td>~600 GB</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="disclaimer-box">
+        <strong>Note:</strong> With 90-day TTL on GPS data, hot storage stabilizes at ~150 GB after the first 90 days. Older data can be moved to <strong>Online Archive</strong> (S3-backed, still queryable) at significantly lower cost if long-term retention is needed.
+      </div>
+
+      <h3>Cluster Tier Recommendation (Assumed)</h3>
+      <table class="arch-table">
+        <thead><tr><th>Component</th><th>Tier (Assumed)</th><th>Specs</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Primary + Secondaries</strong></td>
+            <td>M50 *</td>
+            <td>16 vCPU, 64 GB RAM, 4,000 IOPS</td>
+            <td>Write ingestion + live dashboard reads</td>
+          </tr>
+          <tr>
+            <td><strong>Analytics Node</strong></td>
+            <td>M50 *</td>
+            <td>16 vCPU, 64 GB RAM</td>
+            <td>Isolated reporting workload</td>
+          </tr>
+          <tr>
+            <td><strong>DR Replica</strong></td>
+            <td>M50 *</td>
+            <td>Same as primary</td>
+            <td>Cross-region DR + BCP reads</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="color:#ff9800;font-size:0.85rem;margin-top:0.5rem;">* Assumed tier — final recommendation after detailed sizing exercise.</p>
+
+      <h3>Write Throughput Capacity (Assumed)</h3>
+      <table class="arch-table">
+        <thead><tr><th>Metric</th><th>Requirement</th><th>M50 Capacity (est.)</th><th>Headroom</th></tr></thead>
+        <tbody>
+          <tr><td>GPS writes/sec (average)</td><td>~800/sec</td><td>~8,000 writes/sec</td><td>10x</td></tr>
+          <tr><td>GPS writes/sec (peak)</td><td>~2,400/sec (morning wave)</td><td>~8,000 writes/sec</td><td>3.3x</td></tr>
+          <tr><td>Concurrent connections</td><td>5,000</td><td>16,000/node</td><td>3.2x</td></tr>
+          <tr><td>Storage (steady state)</td><td>~150 GB</td><td>4 TB max</td><td>26x</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Scaling Path</h3>
+      <table class="arch-table">
+        <thead><tr><th>Trigger</th><th>Action</th><th>Impact</th></tr></thead>
+        <tbody>
+          <tr><td>Fleet grows to 16K+ buses</td><td>Enable sharding on gps_events</td><td>Linear write throughput increase</td></tr>
+          <tr><td>CPU > 80% sustained</td><td>Auto-scale tier (M50 → M60/M80)</td><td>More vCPUs + RAM</td></tr>
+          <tr><td>Storage > 80%</td><td>Auto-scale storage OR reduce TTL</td><td>More disk capacity</td></tr>
+          <tr><td>Report queries impacting live</td><td>Add analytics node</td><td>Workload isolation</td></tr>
+          <tr><td>Latency to DR region</td><td>Add read-only node in 3rd region</td><td>Lower read latency for regional users</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Cost Drivers (Indicative — Not Final)</h3>
+      <div class="disclaimer-box">
+        <strong>⚠️ Pricing Note:</strong> Actual costs depend on region, commitment tier (pay-as-you-go vs reserved), data transfer volumes, and negotiated enterprise pricing. Below is directional only — <strong>not a quote</strong>.
+      </div>
+      <table class="arch-table">
+        <thead><tr><th>Component</th><th>Driver</th><th>Optimization Lever</th></tr></thead>
+        <tbody>
+          <tr><td>Compute (cluster tier)</td><td>vCPU + RAM hours</td><td>Auto-scaling (scale down off-peak), reserved instances</td></tr>
+          <tr><td>Storage</td><td>GB provisioned</td><td>Time Series compression (10x), TTL expiry, Online Archive</td></tr>
+          <tr><td>Data Transfer</td><td>Cross-region replication</td><td>Minimize DR region reads, use for failover only</td></tr>
+          <tr><td>Backup</td><td>Snapshot storage</td><td>Reduce continuous retention if acceptable</td></tr>
+          <tr><td>Online Archive</td><td>Query + storage</td><td>Use only for compliance/legal — not frequent access</td></tr>
+        </tbody>
+      </table>
+
+      <div class="feature-card" style="border-color:#4fc3f7;">
+        <h4>📋 Next Steps for Final Sizing</h4>
+        <ul class="check-list">
+          <li>Provide actual GPS payload sample (fields, nested objects, variable data)</li>
+          <li>Confirm peak-to-average traffic ratio (morning/evening rush patterns)</li>
+          <li>Define report concurrency (how many heavy reports run simultaneously)</li>
+          <li>Confirm retention requirements (90 days hot + archive duration)</li>
+          <li>Define SLA targets (latency percentiles: p50, p95, p99)</li>
+          <li>Confirm DR RPO/RTO requirements</li>
+          <li>MongoDB SA team conducts detailed sizing → final tier + cost estimate</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ======================= TAB 8: POC DEMO & APIs ======================= -->
+    <div class="tab-content" id="tab-demo">
+      <h2>PoC Demo Scenarios & API Reference</h2>
+      <p class="section-intro">This PoC demonstrates key VTMS capabilities with simulated GPS data from 50 buses across 10 routes in Bangalore.</p>
+
+      <h3>PoC vs Production Scale</h3>
+      <table class="arch-table">
+        <thead><tr><th>Entity</th><th>PoC</th><th>Production</th><th>Scale Factor</th></tr></thead>
+        <tbody>
+          <tr><td>Vehicles</td><td>50</td><td>8,000–10,000</td><td>160–200x</td></tr>
+          <tr><td>Depots</td><td>5</td><td>86</td><td>17x</td></tr>
+          <tr><td>Routes</td><td>10</td><td>~500</td><td>50x</td></tr>
+          <tr><td>Bus Stops</td><td>80</td><td>~5,000</td><td>62x</td></tr>
+          <tr><td>GPS Events/day</td><td>~432,000</td><td>70,000,000</td><td>162x</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Demo Scenarios</h3>
+      <table class="arch-table">
+        <thead><tr><th>#</th><th>Scenario</th><th>What to Show</th><th>Page</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Live fleet tracking</td><td>50 buses with status-colored markers (arrow=running, pulse=idle, square=stopped), updating every 3s</td><td><a href="/" style="color:#4fc3f7;">Dashboard</a></td></tr>
+          <tr><td>2</td><td>Vehicle detail + route track</td><td>Click bus → see detail. Click "Show Route Track" → see assigned route + on/off track status</td><td><a href="/" style="color:#4fc3f7;">Dashboard</a></td></tr>
+          <tr><td>3</td><td>Route playback with map</td><td>Animated bus on map with speed-colored trail, route reference line, deviation %, signal gaps</td><td><a href="/playback" style="color:#4fc3f7;">Playback</a></td></tr>
+          <tr><td>4</td><td>Alert management</td><td>View/filter/acknowledge/close alerts by type and severity</td><td><a href="/alerts-page" style="color:#4fc3f7;">Alerts</a></td></tr>
+          <tr><td>5</td><td>Overspeed + Geofence speed</td><td>Real-time alerts from Change Stream (school zone violation, overspeed)</td><td><a href="/alerts-page" style="color:#4fc3f7;">Alerts</a></td></tr>
+          <tr><td>6</td><td>Harsh braking (Window Function)</td><td>$setWindowFields computes acceleration from consecutive pings</td><td><a href="/reports" style="color:#4fc3f7;">Reports</a></td></tr>
+          <tr><td>7</td><td>Unauthorized stops</td><td>Sliding window detects 3+ minute stops outside scheduled locations</td><td><a href="/reports" style="color:#4fc3f7;">Reports</a></td></tr>
+          <tr><td>8</td><td>Geofence check (API)</td><td>PIP check, vehicles-in-zone, nearest bus stops via curl</td><td>API (curl)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>API Endpoints</h3>
+      <table class="arch-table">
+        <thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>/api/dashboard/summary</td><td>GET</td><td>Fleet summary — total/running/idle + alerts + depot breakdown</td></tr>
+          <tr><td>/api/dashboard/vehicles</td><td>GET</td><td>All vehicle positions (polled every 3s)</td></tr>
+          <tr><td>/api/dashboard/vehicle/:id</td><td>GET</td><td>Single vehicle detail + recent alerts</td></tr>
+          <tr><td>/api/playback/:vehicleId</td><td>GET</td><td>Route playback with $setWindowFields gap detection</td></tr>
+          <tr><td>/api/alerts</td><td>GET</td><td>List alerts with type/status/depot filters</td></tr>
+          <tr><td>/api/alerts/:id/acknowledge</td><td>PUT</td><td>Acknowledge an active alert</td></tr>
+          <tr><td>/api/alerts/:id/close</td><td>PUT</td><td>Close an alert with resolution</td></tr>
+          <tr><td>/api/geofence/check?lat=&lon=</td><td>GET</td><td>Point-in-polygon check against all geofences</td></tr>
+          <tr><td>/api/geofence/vehicles/:id</td><td>GET</td><td>Vehicles currently inside a geofence</td></tr>
+          <tr><td>/api/geofence/nearby-stops</td><td>GET</td><td>Nearest bus stops ($nearSphere)</td></tr>
+          <tr><td>/api/reports/tracking-summary</td><td>GET</td><td>Daily vehicle tracking summary</td></tr>
+          <tr><td>/api/reports/harsh-events</td><td>GET</td><td>Harsh driving events (window function)</td></tr>
+          <tr><td>/api/reports/unauthorized-stops</td><td>GET</td><td>Unauthorized stop detection (window function)</td></tr>
+          <tr><td>/api/reports/overspeed</td><td>GET</td><td>Overspeeding violations report</td></tr>
+          <tr><td>/api/reports/depot-status</td><td>GET</td><td>Depot-wise vehicle status</td></tr>
+          <tr><td>/api/vehicles/routes/list</td><td>GET</td><td>All routes with geometry</td></tr>
+          <tr><td>/api/vehicles/routes/:routeId</td><td>GET</td><td>Route detail + stops</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Why MongoDB Atlas for VTMS — Summary</h3>
+      <table class="arch-table">
+        <thead><tr><th>Requirement</th><th>Traditional Approach</th><th>MongoDB Atlas</th></tr></thead>
+        <tbody>
+          <tr><td>70M writes/day</td><td>Complex partitioning + sharding</td><td>Time Series auto-bucketing + native sharding</td></tr>
+          <tr><td>Geospatial queries</td><td>PostGIS extension, separate DB</td><td>Native 2dsphere on same cluster</td></tr>
+          <tr><td>90-day auto-expiry</td><td>Cron jobs + partition drops</td><td>Built-in TTL — zero maintenance</td></tr>
+          <tr><td>10x compression</td><td>Not available for hot data</td><td>Automatic with Time Series</td></tr>
+          <tr><td>Window functions</td><td>SQL windows (limited scale)</td><td>$setWindowFields optimized for TS buckets</td></tr>
+          <tr><td>Horizontal scaling</td><td>Read replicas only</td><td>Sharded writes + auto-scaling</td></tr>
+          <tr><td>DR/BCP</td><td>Manual replication</td><td>Multi-region + 1-click failover</td></tr>
+          <tr><td>Real-time events</td><td>CDC (Debezium etc.)</td><td>Native Change Streams</td></tr>
+          <tr><td>Operational overhead</td><td>DBA team for maintenance</td><td>Fully managed — automated ops</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr style="border-color:#2a3a4a;margin:3rem 0;">
+    <p style="text-align:center;color:#546e7a;font-size:0.8rem;">
+      KSRTC VTMS PoC — Built with MongoDB Atlas | Time Series + Standard Collections | Node.js + Express + Leaflet
+    </p>
+  </div>
+
+  <script>
+    // Tab switching logic
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        window.scrollTo({ top: 120, behavior: 'smooth' });
+      });
+    });
+
+    // Support direct linking via hash
+    if (window.location.hash) {
+      const tabId = window.location.hash.replace('#', '');
+      const btn = document.querySelector(`[data-tab="${tabId}"]`);
+      if (btn) btn.click();
+    }
+  </script>
+</body>
+</html>

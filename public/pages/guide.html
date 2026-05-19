@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — How to Use</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .guide-container { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+    .guide-section { background: #1a2332; border: 1px solid #2a3a4a; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .guide-section h3 { color: #4fc3f7; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+    .guide-section .page-badge { background: #0f1923; border: 1px solid #4fc3f7; color: #4fc3f7; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; }
+    .step-list { list-style: none; padding: 0; counter-reset: steps; }
+    .step-list li { padding: 0.6rem 0; padding-left: 2.5rem; position: relative; color: #b0bec5; font-size: 0.88rem; line-height: 1.6; border-bottom: 1px solid #1a2332; }
+    .step-list li:last-child { border-bottom: none; }
+    .step-list li::before { counter-increment: steps; content: counter(steps); position: absolute; left: 0; top: 0.6rem; width: 22px; height: 22px; background: #263238; border: 1px solid #4fc3f7; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; color: #4fc3f7; font-weight: 700; }
+    .feature-tag { display: inline-block; background: #263238; border: 1px solid #2a3a4a; color: #80cbc4; font-size: 0.72rem; padding: 2px 6px; border-radius: 3px; margin-right: 4px; }
+    .tip-box { background: #0f1923; border-left: 3px solid #ff9800; border-radius: 4px; padding: 0.6rem 0.8rem; margin: 0.5rem 0; font-size: 0.82rem; color: #ffe0b2; }
+    .tip-box strong { color: #ff9800; }
+    .screenshot-placeholder { background: #0f1923; border: 1px dashed #2a3a4a; border-radius: 8px; padding: 1rem; text-align: center; color: #546e7a; font-size: 0.82rem; margin: 0.5rem 0; }
+    .nav-path { font-family: monospace; background: #263238; padding: 2px 6px; border-radius: 3px; font-size: 0.78rem; color: #4fc3f7; }
+    .key-combo { background: #263238; border: 1px solid #2a3a4a; padding: 1px 5px; border-radius: 3px; font-size: 0.78rem; color: #e0e0e0; font-family: monospace; }
+    .mongo-feature { display: inline-block; background: #1b5e20; color: #a5d6a7; font-size: 0.7rem; padding: 2px 6px; border-radius: 3px; margin-left: 6px; }
+    .toc { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+    .toc h4 { color: #78909c; font-size: 0.82rem; margin-bottom: 0.5rem; }
+    .toc a { display: block; color: #4fc3f7; text-decoration: none; font-size: 0.85rem; padding: 0.3rem 0; }
+    .toc a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide" class="active">Guide</a>
+    </div>
+  </nav>
+
+  <div class="guide-container">
+    <h2 style="color:#4fc3f7;margin-bottom:0.3rem;">How to Use This Application</h2>
+    <p style="color:#78909c;font-size:0.88rem;margin-bottom:1.5rem;">Complete guide to all features of the KSRTC VTMS PoC. Each section explains what you can do on that page and the MongoDB features powering it.</p>
+
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc">
+      <h4>Quick Navigation</h4>
+      <a href="#dashboard">1. Live Dashboard — Real-time fleet monitoring</a>
+      <a href="#playback">2. Route Playback — Historical trip replay</a>
+      <a href="#alerts">3. Alerts — Real-time violations with GPS context</a>
+      <a href="#reports">4. Reports — Analytics with detection logic</a>
+      <a href="#architecture">5. Architecture — Technical overview</a>
+      <a href="#enhancements">6. Enhancements — Future production improvements</a>
+    </div>
+
+    <!-- 1. LIVE DASHBOARD -->
+    <div class="guide-section" id="dashboard">
+      <h3>🗺️ Live Dashboard <span class="page-badge">/ (Home)</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">Real-time view of all 50 vehicles on a map, with status indicators, speed, and route information.</p>
+
+      <ol class="step-list">
+        <li><strong>View all vehicles:</strong> Open the app at <span class="nav-path">http://localhost:3000</span> — all buses appear on the map as colored markers (green = running, orange = idle, red = stopped)</li>
+        <li><strong>Click a vehicle marker:</strong> A popup shows vehicle ID, current speed, route, depot, heading, and last update time</li>
+        <li><strong>Side panel stats:</strong> The left panel shows fleet-wide statistics — total vehicles, running/idle/stopped counts, alerts count</li>
+        <li><strong>Auto-refresh:</strong> The dashboard polls every 5 seconds for new positions. Vehicles move smoothly on the map as the GPS simulator generates new data</li>
+        <li><strong>Speed-based colors:</strong> Marker colors change based on speed — watch for red (stopped), orange (slow/idle), green (normal), and pulsing red (overspeed)</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 MongoDB Feature:</strong> The dashboard queries <code>vehicle_current_state</code> collection — a standard collection updated in real-time by Change Streams. Each document represents the LATEST state of one vehicle (single-document update pattern).
+      </div>
+
+      <span class="feature-tag">Change Streams</span>
+      <span class="feature-tag">vehicle_current_state</span>
+      <span class="feature-tag">Geospatial Queries</span>
+    </div>
+
+    <!-- 2. ROUTE PLAYBACK -->
+    <div class="guide-section" id="playback">
+      <h3>▶️ Route Playback <span class="page-badge">/playback</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">Replay any vehicle's historical journey — see the bus move along its route with speed changes, direction, and timestamps.</p>
+
+      <ol class="step-list">
+        <li><strong>Select a vehicle:</strong> Use the dropdown at the top to choose a bus (e.g., KA-19-F-1001)</li>
+        <li><strong>Pick a time range:</strong> Choose "Last 1 Hour", "Last 6 Hours", or set custom from/to dates</li>
+        <li><strong>Click "Load Trip":</strong> The GPS trail loads on the map — a colored polyline showing the path</li>
+        <li><strong>Watch playback:</strong> The bus marker moves along the trail automatically. Speed is shown in the panel. The bus icon rotates to match heading/direction</li>
+        <li><strong>Use playback controls:</strong> Pause/Play, speed up (2×, 4×, 8×), or drag the progress slider to jump to any point in time</li>
+        <li><strong>Speed coloring:</strong> The trail line changes color — green (normal), orange (elevated), red (overspeeding) — so you can see where violations happened</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 MongoDB Feature:</strong> Playback queries the <code>gps_events</code> Time Series collection with <code>$match</code> on vehicleId + time range. The Time Series bucket optimization makes this extremely fast even with millions of documents — only relevant time buckets are scanned.
+      </div>
+
+      <span class="feature-tag">Time Series Collection</span>
+      <span class="feature-tag">Bucket Optimization</span>
+      <span class="feature-tag">$sort by timestamp</span>
+      <span class="feature-tag">Geospatial</span>
+    </div>
+
+    <!-- 3. ALERTS -->
+    <div class="guide-section" id="alerts">
+      <h3>🚨 Alerts <span class="page-badge">/alerts-page</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">View all real-time alerts with GPS trail context — see exactly how each alert was triggered on the map.</p>
+
+      <ol class="step-list">
+        <li><strong>Browse alerts:</strong> The left panel shows all alerts sorted by time. Each has a severity dot (red = critical, orange = warning), type, vehicle ID, and timestamp</li>
+        <li><strong>Click any alert:</strong> The right panel lights up with:
+          <ul style="margin:0.3rem 0 0 1rem;color:#90a4ae;font-size:0.82rem;">
+            <li>🗺️ <strong>Map:</strong> GPS trail ±2 minutes around the alert, color-coded by speed</li>
+            <li>📍 <strong>Alert point:</strong> Pulsing red marker showing exactly where it was triggered</li>
+            <li>📊 <strong>Speed graph:</strong> Bar chart showing speed over the ±2 min window</li>
+            <li>🧮 <strong>Calculation box:</strong> The exact formula used to detect this alert</li>
+          </ul>
+        </li>
+        <li><strong>Read the explanation:</strong> Below the map, a human-readable sentence explains what happened (e.g., "Bus was traveling at 55 km/h and accelerated to 92 km/h, exceeding the 60 km/h limit")</li>
+        <li><strong>Acknowledge alerts:</strong> Use the ACK/Close buttons to update alert status</li>
+        <li><strong>Filter by type:</strong> Use the dropdown filters to show only overspeed, harsh braking, geofence violations, etc.</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 MongoDB Features:</strong> Alerts are generated by a <strong>Change Stream</strong> on <code>vehicle_current_state</code>. The GPS context uses <code>$setWindowFields</code> with <code>$shift</code> to compute speed deltas around the alert timestamp. The trail query leverages Time Series bucket pruning for fast ±2 min lookups.
+      </div>
+
+      <span class="feature-tag">Change Streams</span>
+      <span class="feature-tag">$setWindowFields</span>
+      <span class="feature-tag">$shift</span>
+      <span class="feature-tag">Time Series</span>
+      <span class="feature-tag">Geofencing</span>
+    </div>
+
+    <!-- 4. REPORTS -->
+    <div class="guide-section" id="reports">
+      <h3>📋 Reports <span class="page-badge">/reports</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">Generate analytical reports using MongoDB aggregation pipelines. Each report shows a "Show Logic" button explaining the detection algorithm.</p>
+
+      <ol class="step-list">
+        <li><strong>Select a report type:</strong> Click any report card to generate it:
+          <ul style="margin:0.3rem 0 0 1rem;color:#90a4ae;font-size:0.82rem;">
+            <li>📊 Vehicle Tracking Summary — distance, hours, speed per vehicle</li>
+            <li>⚡ Overspeeding Violations — all overspeed events</li>
+            <li>🛑 Harsh Braking/Acceleration — window function detection</li>
+            <li>🚫 Unauthorized Stops — sliding window stop detection</li>
+            <li>📅 Schedule Adherence — actual vs expected timing</li>
+            <li>🔧 Breakdown Incidents</li>
+            <li>🏢 Depot Status — fleet distribution</li>
+            <li>⏭ Stop Skipping — missed bus stops</li>
+            <li>🆘 Panic/SOS Events</li>
+          </ul>
+        </li>
+        <li><strong>Click "⚙ Show Logic":</strong> On any report card, click the button in the top-right corner to see:
+          <ul style="margin:0.3rem 0 0 1rem;color:#90a4ae;font-size:0.82rem;">
+            <li>Which MongoDB collection is queried</li>
+            <li>MongoDB features used ($setWindowFields, $group, etc.)</li>
+            <li>Step-by-step processing logic</li>
+            <li>The actual aggregation pipeline code</li>
+          </ul>
+        </li>
+        <li><strong>View results:</strong> The table shows on the left side with all matching records</li>
+        <li><strong>Click a table row:</strong> For events with GPS data (harsh braking, overspeed, unauthorized stops), clicking a row shows:
+          <ul style="margin:0.3rem 0 0 1rem;color:#90a4ae;font-size:0.82rem;">
+            <li>🗺️ GPS trail on the map (right panel) — color-coded by speed</li>
+            <li>📊 Speed graph showing the event in context</li>
+            <li>🧮 Calculation formula (e.g., acceleration = (Δspeed / 3.6) / Δtime)</li>
+          </ul>
+        </li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 MongoDB Features:</strong> Reports heavily use <code>$setWindowFields</code> for computing acceleration (harsh events) and detecting stationary periods (unauthorized stops). The <code>$shift</code> operator looks at previous GPS pings, and <code>$sum</code> with <code>window: { documents: [-17, 0] }</code> creates sliding windows over 3-minute periods.
+      </div>
+
+      <span class="feature-tag">$setWindowFields</span>
+      <span class="feature-tag">$shift</span>
+      <span class="feature-tag">Sliding Window</span>
+      <span class="feature-tag">$dateTrunc</span>
+      <span class="feature-tag">$group</span>
+      <span class="feature-tag">$lookup</span>
+    </div>
+
+    <!-- 5. ARCHITECTURE -->
+    <div class="guide-section" id="architecture">
+      <h3>🏗️ Architecture <span class="page-badge">/architecture</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">Deep-dive into the technical design — 8 tabs covering every aspect of the MongoDB-powered solution.</p>
+
+      <ol class="step-list">
+        <li><strong>Architecture tab:</strong> Current vs proposed architecture diagrams. See how MongoDB replaces multiple systems (RDBMS + Redis + Kafka + Geospatial DB) with one unified platform</li>
+        <li><strong>PoC Demo & APIs tab:</strong> List of all REST API endpoints, what they do, and how to test them with curl</li>
+        <li><strong>MongoDB Platform tab:</strong> Full feature comparison — which MongoDB Atlas features are used and why</li>
+        <li><strong>Auditing & Compliance tab:</strong> How the system meets KSRTC audit requirements — data retention, access logging, encryption</li>
+        <li><strong>Storage & Cluster Tier tab:</strong> Sizing calculations — how many GB/month for 8,000 buses, recommended Atlas cluster tier</li>
+        <li><strong>Time Series Features tab:</strong> Deep dive into Time Series collections — bucketing, compression ratios, query optimization</li>
+        <li><strong>Geospatial tab:</strong> 2dsphere indexes, $geoWithin, $geoNear — how geofencing and proximity queries work</li>
+        <li><strong>Real-Time Processing tab:</strong> Change Streams architecture, alert generation flow, processing guarantees</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 Tip:</strong> This is the page to show during a technical architecture discussion. Each tab is self-contained and addresses a specific concern (scaling, compliance, cost, features).
+      </div>
+    </div>
+
+    <!-- 6. ENHANCEMENTS -->
+    <div class="guide-section" id="enhancements">
+      <h3>🚀 Enhancements <span class="page-badge">/enhancements</span></h3>
+      <p style="color:#b0bec5;font-size:0.85rem;margin-bottom:0.75rem;">Future production improvements — how adding Kafka, Triggers, Stream Processing, Online Archive, and Data Federation elevates this PoC.</p>
+
+      <ol class="step-list">
+        <li><strong>Enhanced architecture diagram:</strong> See the full production topology at the top — Kafka → Stream Processor → MongoDB → Triggers → Archive → Federation</li>
+        <li><strong>Each technology section shows:</strong> before/after comparison, benefits list, metrics, comparison table, and code examples</li>
+        <li><strong>Kafka section:</strong> How it adds a durable ingest buffer preventing data loss at 80K msg/sec</li>
+        <li><strong>Atlas Triggers:</strong> How they replace our in-process Change Stream with managed serverless functions</li>
+        <li><strong>Stream Processing:</strong> Real-time windowed analytics using native MQL — tumbling and sliding windows</li>
+        <li><strong>Online Archive:</strong> Auto-tier old GPS data to cheap storage (99% cost reduction) while keeping it queryable</li>
+        <li><strong>Data Federation:</strong> Query across hot cluster + archive + S3 with a single MQL query for yearly reports</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 Tip:</strong> This is the "roadmap" page. Use it to discuss what a production deployment would look like and the value of MongoDB Atlas platform services beyond basic database operations.
+      </div>
+    </div>
+
+    <!-- QUICK REFERENCE -->
+    <div class="guide-section" style="border-color: #4fc3f7;">
+      <h3>⚡ Quick Reference — Key MongoDB Features Demonstrated</h3>
+
+      <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-top:0.75rem;">
+        <thead>
+          <tr style="border-bottom:1px solid #2a3a4a;">
+            <th style="text-align:left;padding:0.5rem;color:#4fc3f7;">Feature</th>
+            <th style="text-align:left;padding:0.5rem;color:#4fc3f7;">Where Used</th>
+            <th style="text-align:left;padding:0.5rem;color:#4fc3f7;">Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">Time Series Collections</td><td style="padding:0.4rem;color:#b0bec5;">gps_events</td><td style="padding:0.4rem;color:#b0bec5;">Efficient storage of 80K+ GPS events/sec with auto-bucketing</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">Change Streams</td><td style="padding:0.4rem;color:#b0bec5;">Alert generation</td><td style="padding:0.4rem;color:#b0bec5;">Real-time event processing on vehicle state updates</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">$setWindowFields</td><td style="padding:0.4rem;color:#b0bec5;">Reports (harsh events, unauthorized stops)</td><td style="padding:0.4rem;color:#b0bec5;">Compute acceleration from consecutive pings, sliding windows</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">$shift</td><td style="padding:0.4rem;color:#b0bec5;">Alert context, reports</td><td style="padding:0.4rem;color:#b0bec5;">Look at previous/next GPS reading without self-join</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">2dsphere Index</td><td style="padding:0.4rem;color:#b0bec5;">Geofencing, proximity</td><td style="padding:0.4rem;color:#b0bec5;">Spatial queries for route deviation, geofence checks</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">$geoWithin / $geoNear</td><td style="padding:0.4rem;color:#b0bec5;">Dashboard, alerts</td><td style="padding:0.4rem;color:#b0bec5;">Find vehicles in geofence zones, nearest vehicles</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">$dateTrunc</td><td style="padding:0.4rem;color:#b0bec5;">Unauthorized stops grouping</td><td style="padding:0.4rem;color:#b0bec5;">Group events into time buckets</td></tr>
+          <tr style="border-bottom:1px solid #1a2332;"><td style="padding:0.4rem;color:#80cbc4;">$lookup</td><td style="padding:0.4rem;color:#b0bec5;">Depot status report</td><td style="padding:0.4rem;color:#b0bec5;">Join vehicle state with depot info</td></tr>
+          <tr><td style="padding:0.4rem;color:#80cbc4;">$dateDiff</td><td style="padding:0.4rem;color:#b0bec5;">Tracking summary, schedule</td><td style="padding:0.4rem;color:#b0bec5;">Compute operating hours, stop durations</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RUNNING THE APP -->
+    <div class="guide-section">
+      <h3>🖥️ Running the Application Locally</h3>
+
+      <ol class="step-list">
+        <li><strong>Start the server:</strong> <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">cd ksrtc-vtms-poc && node server.js</code> — starts Express on port 3000, connects to MongoDB Atlas, starts Change Stream processor</li>
+        <li><strong>Open browser:</strong> Navigate to <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">http://localhost:3000</code></li>
+        <li><strong>Seed demo data:</strong> On the Live Dashboard, select a duration from the <strong>hours dropdown</strong> (2h, 4h, 6h, 12h, 24h, 36h, 48h) and click <strong>🌱 Seed Data</strong>. A confirmation prompt will show the estimated number of GPS events and alerts before proceeding. Data is appended — nothing is deleted.</li>
+        <li><strong>Start GPS simulator:</strong> Click the <strong>▶ Simulator</strong> button on the dashboard to start continuous live GPS generation (50 events every 10 seconds). Buses will move in real-time on the map. Click again (<strong>⏹ Simulator</strong>) to stop. No separate terminal needed.</li>
+        <li><strong>Explore pages:</strong> Use the navigation bar to switch between Dashboard, Playback, Alerts, Reports, Architecture, Enhancements, and this Guide</li>
+      </ol>
+
+      <div class="tip-box">
+        <strong>💡 Tip:</strong> Click "🌱 Seed Data" first to populate historical data for Reports, Alerts, and Playback pages. Then click "▶ Simulator" for live bus movement on the Dashboard. Both actions are UI buttons — no terminal commands needed.
+      </div>
+
+      <div class="tip-box" style="border-left-color:#4fc3f7; margin-top:0.5rem;">
+        <strong>📊 Approximate events per duration:</strong><br>
+        2h → ~36K GPS events, 6 alerts &nbsp;|&nbsp; 6h → ~108K events, 18 alerts &nbsp;|&nbsp; 12h → ~216K events, 36 alerts &nbsp;|&nbsp; 24h → ~432K events, 72 alerts
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

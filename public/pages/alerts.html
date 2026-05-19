@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Alerts</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .alerts-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; height: calc(100vh - 140px); }
+    .alerts-list-panel { overflow-y: auto; }
+    .alert-detail-panel { display: flex; flex-direction: column; gap: 0.75rem; }
+    #alertMap { height: 55%; border-radius: 8px; background: #1a2332; }
+    .alert-explanation { background: #1a2332; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; overflow-y: auto; flex: 1; }
+    .alert-explanation h4 { color: #4fc3f7; margin-bottom: 0.5rem; }
+    .alert-explanation .explain-text { color: #b0bec5; line-height: 1.6; font-size: 0.9rem; }
+    .alert-explanation .speed-graph { display: flex; align-items: flex-end; gap: 2px; height: 60px; margin: 0.75rem 0; }
+    .alert-explanation .speed-bar { width: 6px; background: #4caf50; border-radius: 2px 2px 0 0; transition: all 0.2s; position: relative; }
+    .alert-explanation .speed-bar.alert-bar { background: #f44336; }
+    .alert-explanation .speed-bar.warning-bar { background: #ff9800; }
+    .alert-row { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem; border-bottom: 1px solid #1a2332; cursor: pointer; transition: background 0.2s; border-radius: 6px; margin-bottom: 2px; }
+    .alert-row:hover { background: #1a2332; }
+    .alert-row.selected { background: #1a2332; border-left: 3px solid #4fc3f7; }
+    .alert-row .severity-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .alert-row .alert-info { font-size: 0.82rem; color: #b0bec5; }
+    .alert-row .alert-info .alert-title { color: #e0e0e0; font-weight: 500; font-size: 0.88rem; }
+    .alert-row .alert-time { font-size: 0.75rem; color: #546e7a; }
+    .alert-row .alert-status { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; }
+    .status-active { background: #f4433620; color: #f44336; }
+    .status-acknowledged { background: #ff980020; color: #ff9800; }
+    .status-closed { background: #4caf5020; color: #4caf50; }
+    .speed-label { font-size: 0.7rem; color: #78909c; text-align: center; margin-top: 4px; }
+    .legend-row { display: flex; gap: 1rem; font-size: 0.75rem; color: #78909c; margin-top: 0.5rem; }
+    .legend-row span { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+    .calc-box { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; font-family: monospace; font-size: 0.8rem; color: #80cbc4; }
+    .calc-box .formula { color: #ffcc80; }
+    .no-detail { display: flex; align-items: center; justify-content: center; height: 100%; color: #546e7a; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page" class="active">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+  </nav>
+
+  <div class="reports-container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+      <h2 style="color:#4fc3f7;margin:0;">Alert Management</h2>
+      <div style="display:flex;gap:0.5rem;">
+        <select id="alertTypeFilter" onchange="loadAlerts()">
+          <option value="">All Types</option>
+          <option value="overspeed">Overspeed</option>
+          <option value="harsh_braking">Harsh Braking</option>
+          <option value="harsh_acceleration">Harsh Acceleration</option>
+          <option value="unauthorized_stop">Unauthorized Stop</option>
+          <option value="breakdown">Breakdown</option>
+          <option value="panic">Panic/SOS</option>
+          <option value="stop_skipped">Stop Skipped</option>
+          <option value="route_deviation">Route Deviation</option>
+        </select>
+        <select id="alertStatusFilter" onchange="loadAlerts()">
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="alerts-layout">
+      <!-- LEFT: Alert List -->
+      <div class="alerts-list-panel" id="alertsList">
+        <p style="color:#546e7a;">Loading alerts...</p>
+      </div>
+
+      <!-- RIGHT: Map + Explanation -->
+      <div class="alert-detail-panel">
+        <div id="alertMap"><div class="no-detail">Click an alert to see GPS trail &amp; analysis</div></div>
+        <div class="alert-explanation" id="alertExplanation">
+          <div class="no-detail">Select an alert to see how it was detected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let alertMap = null, trailLayer = null, routeLayer = null, alertMarker = null;
+    let allAlerts = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadAlerts();
+    });
+
+    function initMap() {
+      if (alertMap) return;
+      document.getElementById('alertMap').innerHTML = '';
+      alertMap = L.map('alertMap').setView([12.9716, 77.5946], 13);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(alertMap);
+      trailLayer = L.layerGroup().addTo(alertMap);
+      routeLayer = L.layerGroup().addTo(alertMap);
+    }
+
+    async function loadAlerts() {
+      const type = document.getElementById('alertTypeFilter').value;
+      const status = document.getElementById('alertStatusFilter').value;
+      const params = new URLSearchParams();
+      if (type) params.set('type', type);
+      if (status) params.set('status', status);
+      params.set('limit', '100');
+
+      const res = await fetch(`/api/alerts?${params}`);
+      const data = await res.json();
+      allAlerts = data.alerts;
+      renderAlertList(data.alerts);
+    }
+
+    function renderAlertList(alerts) {
+      const container = document.getElementById('alertsList');
+      if (!alerts.length) {
+        container.innerHTML = '<p style="color:#546e7a;">No alerts found</p>';
+        return;
+      }
+
+      container.innerHTML = alerts.map((a, i) => `
+        <div class="alert-row" id="row-${i}" onclick="selectAlert(${i})">
+          <span class="severity-dot" style="background:${getSeverityColor(a.severity)};"></span>
+          <div class="alert-info">
+            <div class="alert-title">${formatType(a.type)}</div>
+            ${a.vehicleId} · ${a.depotId}
+          </div>
+          <span class="alert-time">${new Date(a.timestamp).toLocaleTimeString()}</span>
+          <span class="alert-status status-${a.status}">${a.status}</span>
+        </div>
+      `).join('');
+    }
+
+    async function selectAlert(idx) {
+      const alert = allAlerts[idx];
+      if (!alert) return;
+
+      // Highlight selected row
+      document.querySelectorAll('.alert-row').forEach(r => r.classList.remove('selected'));
+      document.getElementById(`row-${idx}`).classList.add('selected');
+
+      initMap();
+
+      // Fetch GPS context
+      const res = await fetch(`/api/alerts/${alert.alertId}/context`);
+      const data = await res.json();
+
+      renderAlertOnMap(data, alert);
+      renderExplanation(data, alert);
+    }
+
+    function renderAlertOnMap(data, alert) {
+      trailLayer.clearLayers();
+      routeLayer.clearLayers();
+
+      if (!data.trail || data.trail.length === 0) {
+        return;
+      }
+
+      // Draw route reference (blue dashed)
+      if (data.routeGeometry) {
+        const routeCoords = data.routeGeometry.coordinates.map(c => [c[1], c[0]]);
+        L.polyline(routeCoords, { color: '#2196f3', weight: 4, opacity: 0.3, dashArray: '8,6' }).addTo(routeLayer);
+      }
+
+      // Draw trail with speed-based coloring
+      const alertTime = new Date(alert.timestamp).getTime();
+      let alertIdx = 0;
+      let minDistToAlert = Infinity;
+
+      for (let i = 1; i < data.trail.length; i++) {
+        const prev = data.trail[i - 1];
+        const curr = data.trail[i];
+        const prevCoord = [prev.location.coordinates[1], prev.location.coordinates[0]];
+        const currCoord = [curr.location.coordinates[1], curr.location.coordinates[0]];
+
+        // Color: green = normal, orange = elevated, red = alert zone
+        const timeDiff = Math.abs(new Date(curr.timestamp).getTime() - alertTime);
+        let color = '#4caf50'; // normal
+        if (curr.speed > 60) color = '#f44336'; // overspeed
+        else if (curr.speed > 45) color = '#ff9800'; // elevated
+        if (timeDiff < 15000) color = '#f44336'; // near alert time = red
+
+        L.polyline([prevCoord, currCoord], { color, weight: 5, opacity: 0.85 }).addTo(trailLayer);
+
+        // Track closest point to alert time
+        if (timeDiff < minDistToAlert) {
+          minDistToAlert = timeDiff;
+          alertIdx = i;
+        }
+      }
+
+      // Mark alert point with pulsing icon
+      const alertPt = data.trail[alertIdx];
+      if (alertPt) {
+        const coord = [alertPt.location.coordinates[1], alertPt.location.coordinates[0]];
+        L.marker(coord, {
+          icon: L.divIcon({
+            className: 'alert-point-icon',
+            html: `<div style="width:20px;height:20px;background:#f44336;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #f44336;animation:pulse 1s infinite;"></div>`,
+            iconSize: [20, 20], iconAnchor: [10, 10]
+          })
+        }).bindPopup(`<strong>${formatType(alert.type)}</strong><br>Speed: ${alertPt.speed} km/h<br>Time: ${new Date(alertPt.timestamp).toLocaleTimeString()}`).addTo(trailLayer);
+
+        // Add start and end markers
+        const startPt = data.trail[0].location.coordinates;
+        const endPt = data.trail[data.trail.length - 1].location.coordinates;
+        L.circleMarker([startPt[1], startPt[0]], { radius: 6, color: '#fff', fillColor: '#4caf50', fillOpacity: 1, weight: 2 })
+          .bindTooltip('Trail Start', { permanent: false }).addTo(trailLayer);
+        L.circleMarker([endPt[1], endPt[0]], { radius: 6, color: '#fff', fillColor: '#2196f3', fillOpacity: 1, weight: 2 })
+          .bindTooltip('Trail End', { permanent: false }).addTo(trailLayer);
+
+        // Fit map to trail
+        const bounds = L.latLngBounds(data.trail.map(p => [p.location.coordinates[1], p.location.coordinates[0]]));
+        alertMap.fitBounds(bounds.pad(0.2));
+      }
+    }
+
+    function renderExplanation(data, alert) {
+      const container = document.getElementById('alertExplanation');
+      const trail = data.trail || [];
+
+      // Build speed graph
+      const maxSpeed = Math.max(...trail.map(p => p.speed), 60);
+      const alertTime = new Date(alert.timestamp).getTime();
+      const speedBars = trail.map(p => {
+        const timeDiff = Math.abs(new Date(p.timestamp).getTime() - alertTime);
+        const isAlert = timeDiff < 15000;
+        const isWarning = p.speed > 45 && !isAlert;
+        const heightPct = (p.speed / maxSpeed) * 100;
+        return `<div class="speed-bar ${isAlert ? 'alert-bar' : isWarning ? 'warning-bar' : ''}" style="height:${Math.max(heightPct, 3)}%;" title="${p.speed} km/h @ ${new Date(p.timestamp).toLocaleTimeString()}"></div>`;
+      }).join('');
+
+      // Detection formula
+      let calcBox = '';
+      switch (alert.type) {
+        case 'overspeed':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: speed > speedLimit</div>
+            <div>speed = ${alert.details?.speed || '?'} km/h</div>
+            <div>limit = ${alert.details?.limit || 60} km/h</div>
+            <div>result: ${alert.details?.speed || '?'} > ${alert.details?.limit || 60} → <span style="color:#f44336;">ALERT</span></div>
+          </div>`;
+          break;
+        case 'harsh_braking':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: acceleration < -4 m/s²</div>
+            <div>prevSpeed = ${alert.details?.prevSpeed || '?'} km/h</div>
+            <div>currSpeed = ${alert.details?.currentSpeed || '?'} km/h</div>
+            <div>Δspeed = ${alert.details?.currentSpeed || '?'} - ${alert.details?.prevSpeed || '?'} = ${(alert.details?.currentSpeed||0) - (alert.details?.prevSpeed||0)} km/h</div>
+            <div>acceleration = (Δspeed / 3.6) / Δt = <span style="color:#f44336;">${alert.details?.deceleration || '< -4 m/s²'}</span></div>
+          </div>`;
+          break;
+        case 'harsh_acceleration':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: acceleration > 4 m/s²</div>
+            <div>prevSpeed = ${alert.details?.prevSpeed || '?'} km/h</div>
+            <div>currSpeed = ${alert.details?.currentSpeed || '?'} km/h</div>
+            <div>acceleration = (Δspeed / 3.6) / Δt = <span style="color:#ff9800;">${alert.details?.acceleration || '> 4 m/s²'}</span></div>
+          </div>`;
+          break;
+        case 'unauthorized_stop':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: speed ≤ 2 km/h for 18+ consecutive pings (3 min)</div>
+            <div>stationaryWindow = [-17, 0] documents</div>
+            <div>count(speed ≤ 2) = 18 → <span style="color:#f44336;">UNAUTHORIZED STOP</span></div>
+            <div>nearestScheduledStop = ${alert.details?.nearestStop || '> 200m'}</div>
+          </div>`;
+          break;
+        case 'route_deviation':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: distance(busPos, routeLine) > 200m</div>
+            <div>deviation = ${alert.details?.distance || '> 200m'}</div>
+            <div>duration = ${alert.details?.duration || '?'}</div>
+          </div>`;
+          break;
+        case 'panic':
+          calcBox = `<div class="calc-box">
+            <div class="formula">Detection: panic_button == true in GPS payload</div>
+            <div>triggered by: ${alert.details?.triggeredBy || 'driver'}</div>
+          </div>`;
+          break;
+        default:
+          calcBox = `<div class="calc-box"><div class="formula">Alert triggered at ${new Date(alert.timestamp).toLocaleString()}</div></div>`;
+      }
+
+      container.innerHTML = `
+        <h4>${formatType(alert.type)} — ${alert.vehicleId}</h4>
+        <div class="explain-text">${data.explanation}</div>
+        <div class="speed-graph">${speedBars}</div>
+        <div class="speed-label">Speed profile (±2 min around event) · ${trail.length} GPS points</div>
+        <div class="legend-row">
+          <span><span class="legend-dot" style="background:#4caf50;"></span> Normal</span>
+          <span><span class="legend-dot" style="background:#ff9800;"></span> Elevated</span>
+          <span><span class="legend-dot" style="background:#f44336;"></span> Alert Zone</span>
+          <span><span class="legend-dot" style="background:#2196f3;border-top:2px dashed #2196f3;height:0;"></span> Route</span>
+        </div>
+        ${calcBox}
+        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;">
+          ${alert.status === 'active' ? `<button class="btn" onclick="acknowledgeAlert('${alert.alertId}')">Acknowledge</button>` : ''}
+          ${alert.status !== 'closed' ? `<button class="btn btn-danger" onclick="closeAlert('${alert.alertId}')">Close Alert</button>` : '<span style="color:#4caf50;font-size:0.85rem;">✓ Closed</span>'}
+        </div>
+      `;
+    }
+
+    async function acknowledgeAlert(alertId) {
+      await fetch(`/api/alerts/${alertId}/acknowledge`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'demo_operator' })
+      });
+      loadAlerts();
+    }
+
+    async function closeAlert(alertId) {
+      await fetch(`/api/alerts/${alertId}/close`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'demo_operator', resolution: 'Resolved via PoC dashboard' })
+      });
+      loadAlerts();
+    }
+
+    function getSeverityColor(s) {
+      return s === 'critical' ? '#f44336' : s === 'high' ? '#ff9800' : '#ffc107';
+    }
+
+    function formatType(t) {
+      return t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+  </script>
+</body>
+</html>

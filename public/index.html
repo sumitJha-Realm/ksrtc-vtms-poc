@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Live Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span>
+      <h1>KSRTC VTMS</h1>
+      <span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="active">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+    <div class="nav-status">
+      <span id="connectionStatus" class="status-dot green"></span>
+      <span id="lastUpdate">--</span>
+    </div>
+  </nav>
+
+  <div class="dashboard-container">
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="card card-total">
+        <div class="card-icon">🚍</div>
+        <div class="card-content">
+          <h3 id="totalVehicles">--</h3>
+          <p>Total Vehicles</p>
+        </div>
+      </div>
+      <div class="card card-running">
+        <div class="card-icon">🟢</div>
+        <div class="card-content">
+          <h3 id="runningVehicles">--</h3>
+          <p>Running</p>
+        </div>
+      </div>
+      <div class="card card-idle">
+        <div class="card-icon">🟡</div>
+        <div class="card-content">
+          <h3 id="idleVehicles">--</h3>
+          <p>Idle</p>
+        </div>
+      </div>
+      <div class="card card-alerts">
+        <div class="card-icon">🔴</div>
+        <div class="card-content">
+          <h3 id="activeAlerts">--</h3>
+          <p>Active Alerts</p>
+        </div>
+      </div>
+      <div class="card card-speed">
+        <div class="card-icon">⚡</div>
+        <div class="card-content">
+          <h3 id="avgSpeed">--</h3>
+          <p>Avg Speed (km/h)</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content: Map + Sidebar -->
+    <div class="main-content">
+      <div class="map-container">
+        <div id="map"></div>
+        <div class="map-controls">
+          <select id="depotFilter">
+            <option value="">All Depots</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">All Status</option>
+            <option value="running">Running</option>
+            <option value="idle">Idle</option>
+            <option value="stopped">Stopped</option>
+          </select>
+          <button id="toggleRoutes" class="btn btn-sm" onclick="toggleRouteLayers()" title="Show/Hide route tracks">🗺️ Routes</button>
+          <button id="toggleStops" class="btn btn-sm" onclick="toggleStopsLayer()" title="Show/Hide bus stops">🚏 Stops</button>
+          <button id="refreshBtn" class="btn btn-sm">↻ Refresh</button>
+          <select id="seedHours" class="btn btn-sm" style="width:auto;padding:2px 4px;font-size:0.7rem;">
+            <option value="2">2h</option>
+            <option value="4">4h</option>
+            <option value="6" selected>6h</option>
+            <option value="12">12h</option>
+            <option value="24">24h</option>
+            <option value="36">36h</option>
+            <option value="48">48h</option>
+          </select>
+          <button id="seedBtn" class="btn btn-sm" onclick="seedDemoData()" title="Generate sample GPS & alerts data" style="background:#ff9800;color:#000;">🌱 Seed Data</button>
+          <button id="simBtn" class="btn btn-sm" onclick="toggleSimulator()" title="Start/Stop live GPS simulator (50 events/10s)" style="background:#4caf50;color:#fff;">▶ Simulator</button>
+        </div>
+        <!-- Map Legend -->
+        <div class="map-legend">
+          <div class="legend-item"><span class="legend-icon" style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid #4caf50;"></span> Running</div>
+          <div class="legend-item"><span class="legend-icon legend-pulse" style="background:#ffc107;border-radius:50%;"></span> Idle</div>
+          <div class="legend-item"><span class="legend-icon" style="background:#f44336;border-radius:2px;"></span> Stopped</div>
+          <div class="legend-item"><span class="legend-icon" style="background:#9c27b0;transform:rotate(45deg);"></span> Breakdown</div>
+          <div class="legend-item"><span class="legend-icon" style="background:none;border:2px dashed #2196f3;border-radius:0;"></span> Route Track</div>
+          <div class="legend-item"><span class="legend-icon" style="background:#2196f3;border-radius:50%;width:8px;height:8px;"></span> Bus Stop</div>
+          <div class="legend-item"><span class="legend-icon" style="background:#263238;border:2px solid #4fc3f7;border-radius:3px;width:12px;height:8px;"></span> Depot</div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <!-- Depot Summary -->
+        <div class="sidebar-section">
+          <h3>Depot Status</h3>
+          <div id="depotList" class="depot-list"></div>
+        </div>
+
+        <!-- Recent Alerts -->
+        <div class="sidebar-section">
+          <h3>Recent Alerts</h3>
+          <div id="alertList" class="alert-list"></div>
+        </div>
+
+        <!-- Vehicle Detail -->
+        <div class="sidebar-section" id="vehicleDetailPanel" style="display:none;">
+          <h3>Vehicle Detail</h3>
+          <div id="vehicleDetail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

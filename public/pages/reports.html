@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Reports</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .report-detail-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+    .report-table-panel { overflow-y: auto; max-height: calc(100vh - 360px); }
+    .report-map-panel { display: flex; flex-direction: column; gap: 0.75rem; }
+    #reportMap { height: 300px; border-radius: 8px; background: #1a2332; }
+    .event-explanation { background: #1a2332; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; }
+    .event-explanation h4 { color: #4fc3f7; margin-bottom: 0.5rem; font-size: 0.9rem; }
+    .event-explanation .explain-text { color: #b0bec5; line-height: 1.5; font-size: 0.85rem; }
+    .speed-graph { display: flex; align-items: flex-end; gap: 2px; height: 50px; margin: 0.5rem 0; }
+    .speed-bar { width: 5px; background: #4caf50; border-radius: 2px 2px 0 0; }
+    .speed-bar.alert-bar { background: #f44336; }
+    .speed-bar.warning-bar { background: #ff9800; }
+    .calc-box { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 6px; padding: 0.6rem; margin-top: 0.5rem; font-family: monospace; font-size: 0.78rem; color: #80cbc4; }
+    .calc-box .formula { color: #ffcc80; margin-bottom: 0.3rem; }
+    .clickable-row { cursor: pointer; transition: background 0.2s; }
+    .clickable-row:hover { background: #1e3040 !important; }
+    .clickable-row.selected { background: #1e3040 !important; border-left: 3px solid #4fc3f7; }
+    .legend-row { display: flex; gap: 1rem; font-size: 0.72rem; color: #78909c; margin-top: 0.4rem; }
+    .legend-row span { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+    .no-map-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #546e7a; font-size: 0.85rem; }
+    .logic-btn { position: absolute; top: 8px; right: 8px; background: #263238; border: 1px solid #4fc3f7; color: #4fc3f7; font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; cursor: pointer; z-index: 2; }
+    .logic-btn:hover { background: #4fc3f7; color: #0d1b2a; }
+    .report-card { position: relative; }
+    .logic-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+    .logic-modal-overlay.active { display: flex; }
+    .logic-modal { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 10px; width: 700px; max-width: 90vw; max-height: 80vh; overflow-y: auto; padding: 1.5rem; }
+    .logic-modal h3 { color: #4fc3f7; margin-bottom: 0.75rem; }
+    .logic-modal .logic-section { margin-bottom: 1rem; }
+    .logic-modal .logic-section h5 { color: #ffcc80; font-size: 0.82rem; margin-bottom: 0.3rem; }
+    .logic-modal pre { background: #1a2332; border: 1px solid #2a3a4a; border-radius: 6px; padding: 0.75rem; font-size: 0.75rem; color: #80cbc4; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .logic-modal .desc { color: #b0bec5; font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.75rem; }
+    .logic-modal .close-btn { float: right; background: none; border: 1px solid #546e7a; color: #78909c; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+    .logic-modal .close-btn:hover { border-color: #f44336; color: #f44336; }
+    .logic-modal .tag { display: inline-block; background: #1a2332; border: 1px solid #4fc3f7; color: #4fc3f7; font-size: 0.7rem; padding: 2px 6px; border-radius: 3px; margin-right: 6px; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports" class="active">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+  </nav>
+
+  <div class="reports-container">
+    <h2 style="color:#4fc3f7;margin-bottom:0.5rem;">Reports</h2>
+    <p style="color:#78909c;font-size:0.85rem;">Click a report card to generate. Click any row to see GPS trail on map with detection logic.</p>
+
+    <div class="report-grid">
+      <div class="report-card" onclick="runReport('tracking-summary')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('tracking-summary')">⚙ Show Logic</button>
+        <h4>📊 Vehicle Tracking Summary</h4>
+        <p>Daily summary per vehicle: distance, operating hours, avg/max speed.</p>
+        <span class="arch-badge ts">Time Series</span>
+      </div>
+      <div class="report-card" onclick="runReport('overspeed')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('overspeed')">⚙ Show Logic</button>
+        <h4>⚡ Overspeeding Violations</h4>
+        <p>All overspeed events with location, speed, and zone details.</p>
+        <span class="arch-badge std">Standard</span>
+      </div>
+      <div class="report-card" onclick="runReport('harsh-events')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('harsh-events')">⚙ Show Logic</button>
+        <h4>🛑 Harsh Braking / Acceleration</h4>
+        <p>Detected using $setWindowFields — acceleration from consecutive GPS pings.</p>
+        <span class="arch-badge ts">Time Series + Window Functions</span>
+      </div>
+      <div class="report-card" onclick="runReport('unauthorized-stops')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('unauthorized-stops')">⚙ Show Logic</button>
+        <h4>🚫 Unauthorized Stops</h4>
+        <p>Vehicles stationary > 3 min outside scheduled stops. Uses sliding window count.</p>
+        <span class="arch-badge ts">Time Series + Window Functions</span>
+      </div>
+      <div class="report-card" onclick="runReport('schedule-adherence')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('schedule-adherence')">⚙ Show Logic</button>
+        <h4>📅 Schedule Adherence</h4>
+        <p>Compare actual stop arrivals vs scheduled times. Deviation analysis.</p>
+        <span class="arch-badge ts">Time Series</span> <span class="arch-badge std">Standard</span>
+      </div>
+      <div class="report-card" onclick="runReport('breakdown')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('breakdown')">⚙ Show Logic</button>
+        <h4>🔧 Breakdown Incidents</h4>
+        <p>All reported and inferred breakdown events with duration and location.</p>
+        <span class="arch-badge std">Standard</span>
+      </div>
+      <div class="report-card" onclick="runReport('depot-status')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('depot-status')">⚙ Show Logic</button>
+        <h4>🏢 Depot-wise Vehicle Status</h4>
+        <p>Real-time count of running/idle/stopped per depot.</p>
+        <span class="arch-badge std">Standard</span>
+      </div>
+      <div class="report-card" onclick="runReport('stop-skipping')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('stop-skipping')">⚙ Show Logic</button>
+        <h4>⏭ Bus Stop Skipping</h4>
+        <p>Instances where buses skipped scheduled stops.</p>
+        <span class="arch-badge std">Standard</span>
+      </div>
+      <div class="report-card" onclick="runReport('panic')">
+        <button class="logic-btn" onclick="event.stopPropagation();showLogic('panic')">⚙ Show Logic</button>
+        <h4>🆘 Panic/SOS Events</h4>
+        <p>All panic button activations with status and resolution.</p>
+        <span class="arch-badge std">Standard</span>
+      </div>
+    </div>
+
+    <!-- Logic Modal -->
+    <div class="logic-modal-overlay" id="logicModal" onclick="if(event.target===this)closeLogic()">
+      <div class="logic-modal" id="logicModalContent"></div>
+    </div>
+
+    <div id="reportOutput" class="report-output" style="display:none;">
+      <h3 id="reportTitle" style="color:#4fc3f7;margin-bottom:0.5rem;"></h3>
+      <div id="reportNote" style="color:#80cbc4;font-size:0.82rem;margin-bottom:0.5rem;background:#1a2332;padding:0.5rem 0.75rem;border-radius:6px;display:none;"></div>
+
+      <div class="report-detail-layout">
+        <!-- LEFT: Table -->
+        <div class="report-table-panel" id="reportTable"></div>
+        <!-- RIGHT: Map + Explanation -->
+        <div class="report-map-panel">
+          <div id="reportMap"><div class="no-map-msg">Click a table row to see event on map</div></div>
+          <div class="event-explanation" id="eventExplanation">
+            <div class="no-map-msg">Select an event to see detection logic</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let reportMap = null, trailLayer = null, routeLayer = null;
+    let currentReportType = '';
+    let currentReportData = null;
+
+    const REPORT_LOGIC = {
+      'tracking-summary': {
+        title: 'Vehicle Tracking Summary',
+        collection: 'gps_events (Time Series)',
+        tags: ['$group', '$addFields', '$dateDiff', 'Time Series'],
+        description: 'Groups all GPS pings per vehicle for a given day, then computes operating metrics. Uses MongoDB Time Series collection for efficient date-range queries with automatic bucket optimization.',
+        steps: [
+          '1. $match — Filter by date range (startOfDay to endOfDay) and optional depotId',
+          '2. $group — Group by vehicleId: count pings, get first/last timestamps, max/avg speed',
+          '3. $addFields — Compute operatingHours = dateDiff(first, last) in hours',
+          '4. $addFields — Estimate distance = avgSpeed × operatingHours'
+        ],
+        pipeline: `[
+  { $match: { timestamp: { $gte: startOfDay, $lte: endOfDay } } },
+  { $group: {
+      _id: "$metadata.vehicleId",
+      totalPings: { $sum: 1 },
+      firstPing: { $first: "$timestamp" },
+      lastPing: { $last: "$timestamp" },
+      maxSpeed: { $max: "$speed" },
+      avgSpeed: { $avg: "$speed" }
+  }},
+  { $addFields: {
+      operatingHours: { $round: [
+        { $divide: [
+          { $dateDiff: { startDate: "$firstPing",
+                         endDate: "$lastPing", unit: "minute" } },
+          60
+        ]}, 1
+      ]},
+      estimatedKm: { $round: [
+        { $multiply: [
+          { $divide: ["$avgSpeed", 60] },
+          { $dateDiff: { startDate: "$firstPing",
+                         endDate: "$lastPing", unit: "minute" } }
+        ]}, 1
+      ]}
+  }},
+  { $sort: { _id: 1 } }
+]`
+      },
+      'overspeed': {
+        title: 'Overspeeding Violations',
+        collection: 'alerts + Change Stream',
+        tags: ['Change Stream', '$group', 'Real-time Detection'],
+        description: 'Overspeed alerts are generated in REAL-TIME via a Change Stream on vehicle_current_state. When a vehicle\'s speed exceeds the route speed limit (default 60 km/h), an alert document is inserted into the alerts collection. This report queries those stored alerts.',
+        steps: [
+          '1. Change Stream watches vehicle_current_state for speed updates',
+          '2. On each update: if speed > route.speedLimit → insert alert to alerts collection',
+          '3. Report: $match alerts where type="overspeed" filtered by date/depot',
+          '4. Bonus aggregation: $group by vehicleId to find repeat offenders'
+        ],
+        pipeline: `// Real-time detection (Change Stream processor):
+changeStream.on("change", (change) => {
+  if (change.fullDocument.speed > routeSpeedLimit) {
+    db.alerts.insertOne({
+      type: "overspeed",
+      vehicleId, speed, limit: routeSpeedLimit,
+      severity: speed > limit+20 ? "critical" : "warning"
+    });
+  }
+});
+
+// Report query:
+db.alerts.find({ type: "overspeed",
+  timestamp: { $gte: from, $lte: to } })
+  .sort({ timestamp: -1 })
+
+// By-vehicle aggregation:
+[
+  { $match: { type: "overspeed" } },
+  { $group: { _id: "$vehicleId",
+    count: { $sum: 1 },
+    maxSpeed: { $max: "$details.speed" } }},
+  { $sort: { count: -1 } }
+]`
+      },
+      'harsh-events': {
+        title: 'Harsh Braking / Acceleration',
+        collection: 'gps_events (Time Series)',
+        tags: ['$setWindowFields', '$shift', 'acceleration', 'Time Series'],
+        description: 'Uses $setWindowFields with $shift to look at the PREVIOUS GPS ping\'s speed, then computes acceleration as (ΔSpeed / 3.6) / ΔTime. Events exceeding ±2 m/s² threshold are flagged.',
+        steps: [
+          '1. $match — Filter GPS events by date range',
+          '2. $setWindowFields — Partition by vehicleId, sort by timestamp:',
+          '   • prevSpeed = $shift(speed, -1) → get previous ping\'s speed',
+          '   • prevTimestamp = $shift(timestamp, -1)',
+          '3. $addFields — timeDeltaSec = dateDiff(prev, current) in seconds',
+          '4. $addFields — speedDelta = currentSpeed - prevSpeed',
+          '5. $addFields — acceleration = (speedDelta / 3.6) / timeDeltaSec [m/s²]',
+          '6. $match — |acceleration| > 2 m/s²',
+          '7. $project — Label as harsh_braking or harsh_acceleration'
+        ],
+        pipeline: `[
+  { $match: { timestamp: { $gte: startDate, $lte: endDate } } },
+  { $setWindowFields: {
+      partitionBy: "$metadata.vehicleId",
+      sortBy: { timestamp: 1 },
+      output: {
+        prevSpeed: { $shift: { output: "$speed", by: -1 } },
+        prevTimestamp: { $shift: { output: "$timestamp", by: -1 } }
+      }
+  }},
+  { $addFields: {
+      timeDeltaSec: { $dateDiff: {
+        startDate: "$prevTimestamp",
+        endDate: "$timestamp", unit: "second" } },
+      speedDelta: { $subtract: ["$speed", "$prevSpeed"] }
+  }},
+  { $addFields: {
+      accelerationMs2: { $divide: [
+        { $divide: ["$speedDelta", 3.6] },  // km/h → m/s
+        "$timeDeltaSec"                      // ÷ seconds
+      ]}
+  }},
+  { $match: { $or: [
+      { accelerationMs2: { $lt: -2 } },   // Harsh braking
+      { accelerationMs2: { $gt: 2 } }     // Harsh accel
+  ]}},
+  { $project: { vehicleId: "$metadata.vehicleId",
+    speed: 1, prevSpeed: 1,
+    accelerationMs2: { $round: ["$accelerationMs2", 2] },
+    eventType: { $cond: [{ $lt: ["$accelerationMs2", 0] },
+      "harsh_braking", "harsh_acceleration"] }
+  }}
+]`
+      },
+      'unauthorized-stops': {
+        title: 'Unauthorized Stops',
+        collection: 'gps_events (Time Series)',
+        tags: ['$setWindowFields', 'sliding window', '$sum', '$dateTrunc'],
+        description: 'Uses a 18-document sliding window to count consecutive pings where speed ≤ 2 km/h. If all 18 pings (= 3 minutes at 10s interval) are stationary, it\'s flagged as an unauthorized stop. Results are grouped by 5-minute buckets to merge overlapping events.',
+        steps: [
+          '1. $match — Filter by date range',
+          '2. $setWindowFields — Partition by vehicleId, sort by timestamp:',
+          '   • stationaryCount = $sum(speed ≤ 2 ? 1 : 0) over window [-17, 0]',
+          '   • This counts how many of the last 18 pings were stationary',
+          '3. $match — stationaryCount ≥ 18 AND speed ≤ 2',
+          '4. $group — Group by vehicleId + $dateTrunc(5 min) to merge events',
+          '5. $addFields — durationMinutes = dateDiff(start, end) in minutes',
+          '6. $match — duration ≥ 3 minutes (confirms sustained stop)'
+        ],
+        pipeline: `[
+  { $match: { timestamp: { $gte: startDate, $lte: endDate } } },
+  { $setWindowFields: {
+      partitionBy: "$metadata.vehicleId",
+      sortBy: { timestamp: 1 },
+      output: {
+        stationaryCount: {
+          $sum: { $cond: [{ $lte: ["$speed", 2] }, 1, 0] },
+          window: { documents: [-17, 0] }
+          // 18 docs × 10s interval = 3 minute sliding window
+        }
+      }
+  }},
+  { $match: { stationaryCount: { $gte: 18 },
+              speed: { $lte: 2 } } },
+  { $group: {
+      _id: { vehicleId: "$metadata.vehicleId",
+             timeBucket: { $dateTrunc: {
+               date: "$timestamp", unit: "minute", binSize: 5 } } },
+      startTime: { $first: "$timestamp" },
+      endTime: { $last: "$timestamp" },
+      pingsCount: { $sum: 1 }
+  }},
+  { $addFields: { durationMinutes: { $round: [
+      { $divide: [{ $dateDiff: {
+        startDate: "$startTime", endDate: "$endTime",
+        unit: "second" }}, 60] }, 1 ] } } },
+  { $match: { durationMinutes: { $gte: 3 } } }
+]`
+      },
+      'schedule-adherence': {
+        title: 'Schedule Adherence',
+        collection: 'gps_events + schedules',
+        tags: ['$setWindowFields', '$shift', '$lookup', 'Time Series'],
+        description: 'Detects actual stops (speed drops from >5 to ≤2 km/h) using window functions, then compares stop timestamps/locations against the scheduled timetable to compute arrival deviations.',
+        steps: [
+          '1. $match — Filter GPS events by date',
+          '2. $setWindowFields — $shift(speed, -1) to get previous speed',
+          '3. $match — speed ≤ 2 (vehicle stopped) where prevSpeed > 5 (was moving)',
+          '4. $group — Group consecutive stop pings by vehicleId + stoppedAt counter',
+          '5. Compare actualStopEvents with schedules collection (expected times)',
+          '6. Compute deviation = actualArrival - scheduledArrival'
+        ],
+        pipeline: `[
+  { $match: { timestamp: { $gte: startOfDay, $lte: endOfDay } } },
+  { $setWindowFields: {
+      partitionBy: "$metadata.vehicleId",
+      sortBy: { timestamp: 1 },
+      output: {
+        prevSpeed: { $shift: { output: "$speed", by: -1 } },
+        stoppedAt: {
+          $sum: { $cond: [{ $and: [
+            { $lte: ["$speed", 2] },
+            { $gt: ["$prevSpeed", 5] }
+          ]}, 1, 0] },
+          window: { documents: ["unbounded", "current"] }
+        }
+      }
+  }},
+  { $match: { speed: { $lte: 2 } } },
+  { $group: {
+      _id: { vehicleId: "$metadata.vehicleId",
+             stopEvent: "$stoppedAt" },
+      arrivalTime: { $first: "$timestamp" },
+      location: { $first: "$location" }
+  }}
+]
+// Then compare with schedules collection`
+      },
+      'breakdown': {
+        title: 'Breakdown Incidents',
+        collection: 'alerts (Change Stream generated)',
+        tags: ['Change Stream', 'find', 'Real-time'],
+        description: 'Breakdown alerts are generated by the Change Stream processor when a vehicle becomes stationary for an extended period with engine indicators suggesting mechanical failure, or when a driver triggers a breakdown report via the panic system.',
+        steps: [
+          '1. Change Stream detects prolonged zero-speed with engine anomaly signals',
+          '2. Alert inserted with type="breakdown"',
+          '3. Report simply queries: db.alerts.find({ type: "breakdown" })'
+        ],
+        pipeline: `// Detection (Change Stream):
+if (speed === 0 && prevSpeed > 0 && stationaryDuration > 10min) {
+  // Likely breakdown — insert alert
+  db.alerts.insertOne({
+    type: "breakdown",
+    vehicleId, location, timestamp,
+    severity: "critical",
+    status: "active"
+  });
+}
+
+// Report query:
+db.alerts.find({ type: "breakdown" })
+  .sort({ timestamp: -1 })`
+      },
+      'depot-status': {
+        title: 'Depot-wise Vehicle Status',
+        collection: 'vehicle_current_state + depots',
+        tags: ['$group', '$lookup', '$unwind', 'Real-time State'],
+        description: 'Aggregates the real-time vehicle_current_state collection (maintained by Change Streams) to get running/idle/stopped counts per depot, then joins with the depots collection for names.',
+        steps: [
+          '1. $group — Group vehicle_current_state by depotId',
+          '   • Count total, running (status=running), idle, stopped',
+          '   • Compute average speed per depot',
+          '2. $lookup — Join depots collection to get depot name/division',
+          '3. $unwind — Flatten the joined depot document',
+          '4. $project — Clean output with depot name, counts, avg speed'
+        ],
+        pipeline: `[
+  { $group: {
+      _id: "$depotId",
+      total: { $sum: 1 },
+      running: { $sum: {
+        $cond: [{ $eq: ["$status", "running"] }, 1, 0] } },
+      idle: { $sum: {
+        $cond: [{ $eq: ["$status", "idle"] }, 1, 0] } },
+      stopped: { $sum: {
+        $cond: [{ $eq: ["$status", "stopped"] }, 1, 0] } },
+      avgSpeed: { $avg: "$speed" }
+  }},
+  { $lookup: {
+      from: "depots",
+      localField: "_id",
+      foreignField: "depotId",
+      as: "depot" } },
+  { $unwind: "$depot" },
+  { $project: {
+      depotName: "$depot.name",
+      division: "$depot.division",
+      total: 1, running: 1, idle: 1, stopped: 1,
+      avgSpeed: { $round: ["$avgSpeed", 1] } } }
+]`
+      },
+      'stop-skipping': {
+        title: 'Bus Stop Skipping',
+        collection: 'alerts (Change Stream generated)',
+        tags: ['Change Stream', '$geoNear', 'Geofence'],
+        description: 'Detected when a vehicle passes through a scheduled stop\'s geofence radius without decelerating below 5 km/h. The Change Stream processor checks if the vehicle was near a stop but didn\'t actually stop.',
+        steps: [
+          '1. Change Stream monitors vehicle position updates',
+          '2. For each update: check if vehicle is within 100m of a scheduled stop',
+          '3. If vehicle passes through stop radius at speed > 5 km/h → stop skipped',
+          '4. Insert alert with type="stop_skipped"',
+          '5. Report: db.alerts.find({ type: "stop_skipped" })'
+        ],
+        pipeline: `// Detection logic (Change Stream processor):
+const nearbyStops = scheduledStops.filter(stop =>
+  haversineDistance(vehiclePos, stop.location) < 100  // meters
+);
+
+if (nearbyStops.length > 0 && vehicle.speed > 5) {
+  // Vehicle passed through stop without stopping
+  db.alerts.insertOne({
+    type: "stop_skipped",
+    vehicleId, stopName: nearbyStops[0].name,
+    speed: vehicle.speed,
+    severity: "warning"
+  });
+}
+
+// Report:
+db.alerts.find({ type: "stop_skipped" })
+  .sort({ timestamp: -1 }).limit(50)`
+      },
+      'panic': {
+        title: 'Panic/SOS Events',
+        collection: 'alerts',
+        tags: ['Hardware Trigger', 'find', 'Real-time'],
+        description: 'Panic events are triggered by physical SOS buttons on the vehicle. When pressed, the GPS device sends a special packet that the system captures and inserts as a critical alert.',
+        steps: [
+          '1. GPS hardware device sends SOS packet when panic button pressed',
+          '2. Ingest service receives packet → inserts alert with type="panic"',
+          '3. Alert gets severity="critical", triggers immediate notification',
+          '4. Report: simple find query on alerts collection'
+        ],
+        pipeline: `// Ingestion (on SOS packet received):
+db.alerts.insertOne({
+  type: "panic",
+  vehicleId,
+  location: currentPosition,
+  timestamp: new Date(),
+  severity: "critical",
+  status: "active",
+  details: { trigger: "hardware_sos_button" }
+});
+
+// Report:
+db.alerts.find({ type: "panic" })
+  .sort({ timestamp: -1 })`
+      }
+    };
+
+    function showLogic(type) {
+      const logic = REPORT_LOGIC[type];
+      if (!logic) return;
+      const modal = document.getElementById('logicModal');
+      const content = document.getElementById('logicModalContent');
+      content.innerHTML = `
+        <button class="close-btn" onclick="closeLogic()">✕ Close</button>
+        <h3>⚙ ${logic.title} — Generation Logic</h3>
+        <div class="logic-section">
+          <h5>Collection</h5>
+          <p class="desc">${logic.collection}</p>
+        </div>
+        <div class="logic-section">
+          <h5>MongoDB Features Used</h5>
+          <div>${logic.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+        </div>
+        <div class="logic-section">
+          <h5>How It Works</h5>
+          <p class="desc">${logic.description}</p>
+        </div>
+        <div class="logic-section">
+          <h5>Processing Steps</h5>
+          <div class="desc">${logic.steps.map(s => `<div style="margin-bottom:3px;">${s}</div>`).join('')}</div>
+        </div>
+        <div class="logic-section">
+          <h5>MongoDB Aggregation Pipeline / Query</h5>
+          <pre>${logic.pipeline}</pre>
+        </div>
+      `;
+      modal.classList.add('active');
+    }
+
+    function closeLogic() {
+      document.getElementById('logicModal').classList.remove('active');
+    }
+
+    function initReportMap() {
+      if (reportMap) return;
+      document.getElementById('reportMap').innerHTML = '';
+      reportMap = L.map('reportMap').setView([12.9716, 77.5946], 13);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(reportMap);
+      trailLayer = L.layerGroup().addTo(reportMap);
+      routeLayer = L.layerGroup().addTo(reportMap);
+    }
+
+    async function runReport(type) {
+      currentReportType = type;
+      const outputDiv = document.getElementById('reportOutput');
+      const titleDiv = document.getElementById('reportTitle');
+      const tableDiv = document.getElementById('reportTable');
+      const noteDiv = document.getElementById('reportNote');
+      const explDiv = document.getElementById('eventExplanation');
+
+      outputDiv.style.display = 'block';
+      titleDiv.textContent = 'Loading...';
+      tableDiv.innerHTML = '';
+      noteDiv.style.display = 'none';
+      explDiv.innerHTML = '<div class="no-map-msg">Select an event to see detection logic</div>';
+
+      // Reset map
+      if (reportMap) { trailLayer.clearLayers(); routeLayer.clearLayers(); }
+
+      try {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const params = `from=${yesterday.toISOString()}&to=${now.toISOString()}`;
+
+        const res = await fetch(`/api/reports/${type}?${params}`);
+        const data = await res.json();
+        currentReportData = data;
+
+        titleDiv.textContent = data.report || type;
+
+        if (data.note) {
+          noteDiv.style.display = 'block';
+          noteDiv.innerHTML = `<strong>🔧 Detection Logic:</strong> ${data.note}`;
+        }
+
+        // Render based on report type
+        if (data.vehicles && data.vehicles.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.vehicles, ['_id', 'depotId', 'routeId', 'totalPings', 'maxSpeed', 'avgSpeed', 'operatingHours', 'estimatedKm'], type);
+        } else if (data.events && data.events.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.events, ['vehicleId', 'timestamp', 'speed', 'prevSpeed', 'accelerationMs2', 'eventType'], type);
+        } else if (data.stops && data.stops.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.stops, ['_id.vehicleId', 'startTime', 'endTime', 'durationMinutes', 'pingsCount'], type);
+        } else if (data.violations && data.violations.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.violations, ['vehicleId', 'timestamp', 'severity', 'status'], type);
+        } else if (data.incidents && data.incidents.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.incidents, ['vehicleId', 'timestamp', 'severity', 'status', 'type'], type);
+        } else if (data.depots && data.depots.length > 0) {
+          tableDiv.innerHTML = renderClickableTable(data.depots, ['depotName', 'division', 'total', 'running', 'idle', 'stopped', 'avgSpeed'], type);
+        } else {
+          tableDiv.innerHTML = `<pre style="color:#b0bec5;font-size:0.8rem;">${JSON.stringify(data, null, 2)}</pre>`;
+        }
+
+        if (data.total !== undefined) {
+          tableDiv.innerHTML += `<p style="margin-top:0.5rem;color:#78909c;font-size:0.8rem;">Total: ${data.total} records</p>`;
+        }
+      } catch (err) {
+        tableDiv.innerHTML = `<p style="color:#f44336;">Error: ${err.message}</p>`;
+      }
+    }
+
+    function renderClickableTable(rows, fields, reportType) {
+      if (!rows.length) return '<p style="color:#546e7a;">No data</p>';
+      const cols = fields;
+      let html = '<table><thead><tr>';
+      cols.forEach(c => { html += `<th>${formatHeader(c)}</th>`; });
+      html += '</tr></thead><tbody>';
+      rows.slice(0, 50).forEach((row, idx) => {
+        const hasLocation = row.location || (row.timestamp && (row.vehicleId || row._id?.vehicleId));
+        html += `<tr class="${hasLocation ? 'clickable-row' : ''}" ${hasLocation ? `onclick="showEventOnMap(${idx})"` : ''} id="report-row-${idx}">`;
+        cols.forEach(c => {
+          let val = getNestedValue(row, c);
+          if (val instanceof Date || (typeof val === 'string' && val.match && val.match(/^\d{4}-\d{2}-\d{2}T/))) {
+            val = new Date(val).toLocaleString();
+          }
+          if (typeof val === 'number') val = Math.round(val * 100) / 100;
+          if (typeof val === 'object' && val !== null) val = JSON.stringify(val).slice(0, 40);
+          html += `<td>${val ?? '--'}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+
+    async function showEventOnMap(idx) {
+      initReportMap();
+
+      // Highlight row
+      document.querySelectorAll('.clickable-row').forEach(r => r.classList.remove('selected'));
+      const row = document.getElementById(`report-row-${idx}`);
+      if (row) row.classList.add('selected');
+
+      const data = currentReportData;
+      let event = null;
+      let vehicleId = null;
+      let timestamp = null;
+
+      // Extract event data based on report type
+      if (data.events) event = data.events[idx];
+      else if (data.stops) event = data.stops[idx];
+      else if (data.violations) event = data.violations[idx];
+      else if (data.incidents) event = data.incidents[idx];
+      else if (data.vehicles) event = data.vehicles[idx];
+
+      if (!event) return;
+
+      vehicleId = event.vehicleId || event._id?.vehicleId || event._id;
+      timestamp = event.timestamp || event.startTime;
+
+      if (!vehicleId || !timestamp) {
+        document.getElementById('eventExplanation').innerHTML = `<div class="no-map-msg">No GPS context available for this record</div>`;
+        return;
+      }
+
+      // Fetch GPS context
+      try {
+        const res = await fetch(`/api/reports/event-context?vehicleId=${vehicleId}&timestamp=${new Date(timestamp).toISOString()}&minutes=2`);
+        const ctx = await res.json();
+
+        renderTrailOnMap(ctx, event, timestamp);
+        renderEventExplanation(ctx, event);
+      } catch (e) {
+        document.getElementById('eventExplanation').innerHTML = `<p style="color:#f44336;">Error loading GPS context</p>`;
+      }
+    }
+
+    function renderTrailOnMap(ctx, event, eventTimestamp) {
+      trailLayer.clearLayers();
+      routeLayer.clearLayers();
+
+      if (!ctx.trail || ctx.trail.length === 0) {
+        document.getElementById('eventExplanation').innerHTML = `<div class="no-map-msg">No GPS data found around this time</div>`;
+        return;
+      }
+
+      // Draw route reference
+      if (ctx.routeGeometry) {
+        const routeCoords = ctx.routeGeometry.coordinates.map(c => [c[1], c[0]]);
+        L.polyline(routeCoords, { color: '#2196f3', weight: 3, opacity: 0.3, dashArray: '8,6' }).addTo(routeLayer);
+      }
+
+      // Draw trail with speed coloring
+      const eventTime = new Date(eventTimestamp).getTime();
+      let alertIdx = 0, minDist = Infinity;
+
+      for (let i = 1; i < ctx.trail.length; i++) {
+        const prev = ctx.trail[i - 1];
+        const curr = ctx.trail[i];
+        const prevCoord = [prev.location.coordinates[1], prev.location.coordinates[0]];
+        const currCoord = [curr.location.coordinates[1], curr.location.coordinates[0]];
+
+        const timeDiff = Math.abs(new Date(curr.timestamp).getTime() - eventTime);
+        let color = '#4caf50';
+        if (curr.speed > 60) color = '#f44336';
+        else if (curr.speed > 45) color = '#ff9800';
+        if (timeDiff < 15000) color = '#f44336';
+
+        L.polyline([prevCoord, currCoord], { color, weight: 5, opacity: 0.85 }).addTo(trailLayer);
+
+        if (timeDiff < minDist) { minDist = timeDiff; alertIdx = i; }
+      }
+
+      // Event point marker
+      const eventPt = ctx.trail[alertIdx];
+      if (eventPt) {
+        const coord = [eventPt.location.coordinates[1], eventPt.location.coordinates[0]];
+        L.marker(coord, {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="width:18px;height:18px;background:#f44336;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px #f44336;"></div>`,
+            iconSize: [18, 18], iconAnchor: [9, 9]
+          })
+        }).bindPopup(`<strong>Event Point</strong><br>Speed: ${eventPt.speed} km/h`).addTo(trailLayer);
+      }
+
+      // Start/end markers
+      const s = ctx.trail[0].location.coordinates;
+      const e = ctx.trail[ctx.trail.length - 1].location.coordinates;
+      L.circleMarker([s[1], s[0]], { radius: 5, color: '#fff', fillColor: '#4caf50', fillOpacity: 1, weight: 2 }).addTo(trailLayer);
+      L.circleMarker([e[1], e[0]], { radius: 5, color: '#fff', fillColor: '#2196f3', fillOpacity: 1, weight: 2 }).addTo(trailLayer);
+
+      const bounds = L.latLngBounds(ctx.trail.map(p => [p.location.coordinates[1], p.location.coordinates[0]]));
+      reportMap.fitBounds(bounds.pad(0.2));
+    }
+
+    function renderEventExplanation(ctx, event) {
+      const container = document.getElementById('eventExplanation');
+      const trail = ctx.trail || [];
+
+      // Speed graph
+      const maxSpeed = Math.max(...trail.map(p => p.speed), 60);
+      const eventTime = new Date(event.timestamp || event.startTime).getTime();
+      const speedBars = trail.map(p => {
+        const timeDiff = Math.abs(new Date(p.timestamp).getTime() - eventTime);
+        const isAlert = timeDiff < 15000;
+        const isWarning = p.speed > 45 && !isAlert;
+        const hPct = (p.speed / maxSpeed) * 100;
+        return `<div class="speed-bar ${isAlert ? 'alert-bar' : isWarning ? 'warning-bar' : ''}" style="height:${Math.max(hPct, 3)}%;" title="${p.speed} km/h"></div>`;
+      }).join('');
+
+      // Calculation box based on report type
+      let calcBox = '';
+      if (currentReportType === 'harsh-events') {
+        const acc = event.accelerationMs2 || '?';
+        const eType = event.eventType === 'harsh_braking' ? 'Braking' : 'Acceleration';
+        calcBox = `<div class="calc-box">
+          <div class="formula">$setWindowFields → $shift(speed, -1) → compute acceleration</div>
+          <div>prevSpeed = ${event.prevSpeed || '?'} km/h → currSpeed = ${event.speed || '?'} km/h</div>
+          <div>Δspeed = ${event.speed || 0} - ${event.prevSpeed || 0} = ${((event.speed||0) - (event.prevSpeed||0)).toFixed(1)} km/h</div>
+          <div>acceleration = (${((event.speed||0) - (event.prevSpeed||0)).toFixed(1)} / 3.6) / 10s = <span style="color:${acc < 0 ? '#f44336' : '#ff9800'};">${acc} m/s²</span></div>
+          <div>threshold: |a| > 2 m/s² → <span style="color:#f44336;">${eType} DETECTED</span></div>
+        </div>`;
+      } else if (currentReportType === 'unauthorized-stops') {
+        calcBox = `<div class="calc-box">
+          <div class="formula">$setWindowFields → sliding window [-17, 0] → count(speed ≤ 2)</div>
+          <div>Vehicle stationary for ${event.durationMinutes || '?'} minutes (${event.pingsCount || '?'} GPS pings)</div>
+          <div>18+ consecutive pings at ≤ 2 km/h = 3+ minutes stopped</div>
+          <div>Location not matching any scheduled stop → <span style="color:#f44336;">UNAUTHORIZED</span></div>
+        </div>`;
+      } else if (currentReportType === 'overspeed') {
+        calcBox = `<div class="calc-box">
+          <div class="formula">Change Stream → speed > routeSpeedLimit</div>
+          <div>speed = ${event.details?.speed || '?'} km/h, limit = ${event.details?.limit || 60} km/h</div>
+          <div>result: <span style="color:#f44336;">OVERSPEED ALERT</span></div>
+        </div>`;
+      } else if (currentReportType === 'tracking-summary') {
+        calcBox = `<div class="calc-box">
+          <div class="formula">$group by vehicleId → $avg/$max speed, $first/$last timestamp</div>
+          <div>totalPings = ${event.totalPings || '?'} | maxSpeed = ${Math.round(event.maxSpeed||0)} km/h</div>
+          <div>operatingHours = dateDiff(first, last) / 60 = ${event.operatingHours || '?'} hrs</div>
+        </div>`;
+      }
+
+      const explanation = getReportExplanation(event);
+
+      container.innerHTML = `
+        <h4>${event.vehicleId || event._id?.vehicleId || event._id || 'Event'} — ${new Date(event.timestamp || event.startTime || '').toLocaleTimeString() || ''}</h4>
+        <div class="explain-text">${explanation}</div>
+        <div class="speed-graph">${speedBars}</div>
+        <div class="legend-row">
+          <span><span class="legend-dot" style="background:#4caf50;"></span> Normal</span>
+          <span><span class="legend-dot" style="background:#ff9800;"></span> Elevated</span>
+          <span><span class="legend-dot" style="background:#f44336;"></span> Event</span>
+        </div>
+        ${calcBox}
+      `;
+    }
+
+    function getReportExplanation(event) {
+      switch (currentReportType) {
+        case 'harsh-events':
+          if (event.eventType === 'harsh_braking') {
+            return `Bus was traveling at ${event.prevSpeed || '?'} km/h and braked hard to ${event.speed || '?'} km/h in 10 seconds. Deceleration of ${event.accelerationMs2 || '?'} m/s² exceeds the -2 m/s² threshold (unsafe braking). The speed graph shows the sudden drop at the red zone.`;
+          }
+          return `Bus accelerated rapidly from ${event.prevSpeed || '?'} km/h to ${event.speed || '?'} km/h in 10 seconds. Acceleration of ${event.accelerationMs2 || '?'} m/s² exceeds the 2 m/s² threshold (aggressive driving).`;
+        case 'unauthorized-stops':
+          return `Bus was stationary for ${event.durationMinutes || '?'} minutes (${event.pingsCount || '?'} consecutive GPS pings at ≤ 2 km/h). This location is not a scheduled bus stop — the stop is unauthorized and requires investigation.`;
+        case 'overspeed':
+          return `Vehicle exceeded the speed limit of ${event.details?.limit || 60} km/h, reaching ${event.details?.speed || '?'} km/h. The trail shows the bus approaching at normal speed (green) then accelerating into the red zone.`;
+        case 'tracking-summary':
+          return `Vehicle operated for ${event.operatingHours || '?'} hours with ${event.totalPings || '?'} GPS pings recorded. Average speed: ${Math.round(event.avgSpeed||0)} km/h, max: ${Math.round(event.maxSpeed||0)} km/h. Estimated distance: ${event.estimatedKm || '?'} km.`;
+        default:
+          return `Event detected at ${new Date(event.timestamp || event.startTime || '').toLocaleString()}.`;
+      }
+    }
+
+    function getNestedValue(obj, key) {
+      return key.split('.').reduce((o, k) => o && o[k], obj);
+    }
+
+    function formatHeader(str) {
+      return str.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/\./g, ' ').replace(/^\w/, c => c.toUpperCase());
+    }
+  </script>
+</body>
+</html>

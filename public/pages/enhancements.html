@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — Future Enhancements</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .enhance-container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .enhance-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; margin-top: 1.5rem; }
+    .enhance-section { background: #1a2332; border: 1px solid #2a3a4a; border-radius: 12px; padding: 1.5rem; }
+    .enhance-section h3 { color: #4fc3f7; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
+    .enhance-section .subtitle { color: #78909c; font-size: 0.82rem; margin-bottom: 1rem; }
+    .arch-before-after { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: start; margin: 1rem 0; }
+    .arch-box { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; }
+    .arch-box h5 { color: #ff9800; font-size: 0.8rem; margin-bottom: 0.5rem; }
+    .arch-box.after h5 { color: #4caf50; }
+    .arch-box pre { font-size: 0.72rem; color: #80cbc4; white-space: pre; overflow-x: auto; }
+    .arrow-col { display: flex; align-items: center; font-size: 1.5rem; color: #4fc3f7; padding-top: 2rem; }
+    .benefit-list { list-style: none; padding: 0; margin: 0.75rem 0; }
+    .benefit-list li { padding: 0.4rem 0; padding-left: 1.5rem; position: relative; color: #b0bec5; font-size: 0.85rem; line-height: 1.5; }
+    .benefit-list li::before { content: "✓"; position: absolute; left: 0; color: #4caf50; font-weight: bold; }
+    .metric-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.75rem 0; }
+    .metric { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 6px; padding: 0.5rem 0.75rem; text-align: center; min-width: 120px; }
+    .metric .val { font-size: 1.2rem; font-weight: 700; color: #4fc3f7; }
+    .metric .label { font-size: 0.7rem; color: #78909c; }
+    .pipeline-diagram { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; margin: 1rem 0; overflow-x: auto; }
+    .pipeline-diagram pre { font-size: 0.75rem; color: #80cbc4; white-space: pre; }
+    .tag { display: inline-block; background: #1a2332; border: 1px solid #4fc3f7; color: #4fc3f7; font-size: 0.7rem; padding: 2px 6px; border-radius: 3px; margin-right: 4px; }
+    .tag.kafka { border-color: #ff9800; color: #ff9800; }
+    .tag.trigger { border-color: #ab47bc; color: #ab47bc; }
+    .tag.stream { border-color: #26a69a; color: #26a69a; }
+    .tag.archive { border-color: #78909c; color: #78909c; }
+    .tag.federation { border-color: #ef5350; color: #ef5350; }
+    .comparison-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0.75rem 0; }
+    .comparison-table th { background: #0f1923; color: #4fc3f7; padding: 0.5rem; text-align: left; border-bottom: 1px solid #2a3a4a; }
+    .comparison-table td { padding: 0.5rem; color: #b0bec5; border-bottom: 1px solid #1a2332; }
+    .comparison-table .current { color: #ff9800; }
+    .comparison-table .enhanced { color: #4caf50; }
+    .full-arch-diagram { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+    .full-arch-diagram pre { font-size: 0.72rem; color: #b0bec5; white-space: pre; line-height: 1.5; }
+    .full-arch-diagram .highlight { color: #4fc3f7; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo">🚍</span><h1>KSRTC VTMS</h1><span class="badge">PoC</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Live Dashboard</a>
+      <a href="/playback">Route Playback</a>
+      <a href="/alerts-page">Alerts</a>
+      <a href="/reports">Reports</a>
+      <a href="/architecture">Architecture</a>
+      <a href="/enhancements" class="active">Enhancements</a>
+      <a href="/guide">Guide</a>
+    </div>
+  </nav>
+
+  <div class="enhance-container">
+    <h2 style="color:#4fc3f7;">Future Architecture Enhancements</h2>
+    <p style="color:#78909c;font-size:0.88rem;margin-bottom:0.5rem;">How adding Kafka, Atlas Triggers, Stream Processing, Online Archive, and Data Federation elevates this PoC to a production-grade system handling 8,000+ buses.</p>
+
+    <!-- FULL ENHANCED ARCHITECTURE DIAGRAM -->
+    <div class="full-arch-diagram">
+      <pre>
+                         ┌─────────────────────────────────────────────────────────────┐
+                         │                  ENHANCED KSRTC VTMS ARCHITECTURE           │
+                         └─────────────────────────────────────────────────────────────┘
+
+  ┌──────────────┐      ┌──────────────────┐      ┌─────────────────────────────────────────────┐
+  │  GPS Devices │─────▶│  <span class="highlight">Apache Kafka</span>    │─────▶│  MongoDB Atlas                              │
+  │  8,000 buses │      │  (Ingest Buffer) │      │                                             │
+  │  10s interval│      │                  │      │  ┌──────────────────────────────────────┐   │
+  └──────────────┘      │  • 80K msg/sec   │      │  │ <span class="highlight">Atlas Stream Processing</span>              │   │
+                        │  • Partitioned   │      │  │ • Real-time aggregation               │   │
+                        │  • Replay-able   │      │  │ • Tumbling/Sliding windows            │   │
+                        └──────────────────┘      │  │ • Emit alerts directly                │   │
+                                                  │  └──────────────┬───────────────────────┘   │
+                                                  │                 │                           │
+                         ┌────────────────────────┼─────────────────┼───────────────────┐       │
+                         │                        ▼                 ▼                   │       │
+                         │  ┌─────────────┐  ┌──────────┐  ┌──────────────────┐        │       │
+                         │  │ gps_events  │  │  alerts  │  │ vehicle_current  │        │       │
+                         │  │ (TimeSeries)│  │          │  │ _state           │        │       │
+                         │  └──────┬──────┘  └──────────┘  └────────┬─────────┘        │       │
+                         │         │                                │                  │       │
+                         │         ▼                                ▼                  │       │
+                         │  ┌─────────────┐                 ┌──────────────┐           │       │
+                         │  │<span class="highlight">Online Archive</span>│                 │<span class="highlight">Atlas Triggers</span> │           │       │
+                         │  │ (>90 days)  │                 │ • Notifications│           │       │
+                         │  │ Auto-tiered │                 │ • Escalations  │           │       │
+                         │  └──────┬──────┘                 │ • Integrations │           │       │
+                         │         │                        └──────────────┘           │       │
+                         │         ▼                                                   │       │
+                         │  ┌──────────────────────────────────────┐                   │       │
+                         │  │ <span class="highlight">Atlas Data Federation</span>                   │                   │       │
+                         │  │ • Query across hot + archive + S3    │                   │       │
+                         │  │ • Unified view for yearly reports    │                   │       │
+                         │  └──────────────────────────────────────┘                   │       │
+                         └─────────────────────────────────────────────────────────────┘       │
+                                                                                               │
+                         ┌─────────────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+              ┌──────────────────────────────────────────┐
+              │        Application Layer                  │
+              │  Dashboard │ Playback │ Alerts │ Reports  │
+              └──────────────────────────────────────────┘
+      </pre>
+    </div>
+
+    <div class="enhance-grid">
+
+      <!-- 1. KAFKA -->
+      <div class="enhance-section">
+        <h3><span class="tag kafka">Kafka</span> Apache Kafka — Ingest Buffer & Decoupling</h3>
+        <p class="subtitle">Decouple GPS device ingestion from database writes for reliability at scale</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+GPS Device → HTTP POST → Express → MongoDB
+             (direct write, no buffer)
+             
+Risk: If MongoDB is slow/down,
+GPS data is LOST</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Kafka</h5>
+            <pre>
+GPS Device → Kafka Topic → Consumer → MongoDB
+             (buffered, partitioned, durable)
+             
+Benefit: Zero data loss,
+replay capability, back-pressure</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>Throughput:</strong> Handle 80,000+ GPS messages/second (8,000 buses × 10s = 800 msg/s normal, burst to 80K during peak)</li>
+          <li><strong>Durability:</strong> GPS data persists in Kafka for 7 days — even if MongoDB is down, no data loss</li>
+          <li><strong>Decoupling:</strong> Multiple consumers can read same stream — one writes to MongoDB, another does real-time analytics</li>
+          <li><strong>Back-pressure:</strong> If database is slow, Kafka buffers automatically — no dropped messages</li>
+          <li><strong>Replay:</strong> Reprocess historical data when adding new alert rules or fixing bugs</li>
+        </ul>
+
+        <div class="metric-row">
+          <div class="metric"><div class="val">0%</div><div class="label">Data Loss</div></div>
+          <div class="metric"><div class="val">80K/s</div><div class="label">Peak Throughput</div></div>
+          <div class="metric"><div class="val">7 days</div><div class="label">Retention</div></div>
+          <div class="metric"><div class="val">&lt;10ms</div><div class="label">Latency</div></div>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Aspect</th><th>Current PoC</th><th>With Kafka</th></tr>
+          <tr><td>Data loss on DB downtime</td><td class="current">Yes — messages dropped</td><td class="enhanced">No — buffered in Kafka</td></tr>
+          <tr><td>Max ingestion rate</td><td class="current">~5K/s (Express bottleneck)</td><td class="enhanced">80K+/s (partitioned)</td></tr>
+          <tr><td>Multiple consumers</td><td class="current">Not possible</td><td class="enhanced">Analytics, Archival, Alerts in parallel</td></tr>
+          <tr><td>Reprocessing</td><td class="current">Impossible once consumed</td><td class="enhanced">Replay from any offset</td></tr>
+        </table>
+      </div>
+
+      <!-- 2. ATLAS TRIGGERS -->
+      <div class="enhance-section">
+        <h3><span class="tag trigger">Triggers</span> MongoDB Atlas Triggers — Serverless Event Processing</h3>
+        <p class="subtitle">Replace application-level Change Streams with managed, auto-scaling serverless functions</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+Node.js server.js
+  └── changeStream.watch()
+      └── Process in-memory
+      
+Risk: If server crashes,
+alert processing STOPS</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Atlas Triggers</h5>
+            <pre>
+Atlas Trigger (managed)
+  └── Function executes on each change
+      └── Guaranteed delivery, auto-retry
+      
+Benefit: Survives app restarts,
+auto-scales, no infra to manage</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>Resilience:</strong> Triggers run in Atlas — independent of your app server. App crashes don't stop alert processing</li>
+          <li><strong>Auto-scaling:</strong> Atlas scales trigger execution based on event volume — no manual tuning</li>
+          <li><strong>Guaranteed delivery:</strong> Built-in retry logic ensures no events are missed</li>
+          <li><strong>Use cases:</strong> Send SMS/push notification on critical alerts, auto-escalate unacknowledged alerts, update dashboards, log audit trails</li>
+          <li><strong>Integration:</strong> Call external APIs (SMS gateway, email, ticketing systems) directly from trigger functions</li>
+        </ul>
+
+        <div class="pipeline-diagram">
+          <pre>
+// Atlas Trigger Function — Overspeed Alert Notification
+exports = async function(changeEvent) {
+  const alert = changeEvent.fullDocument;
+  
+  if (alert.type === 'overspeed' && alert.severity === 'critical') {
+    // Auto-escalate: notify depot manager
+    await context.services.get("http").post({
+      url: "https://sms-gateway.ksrtc.in/send",
+      body: { phone: depotManager.phone,
+              message: `CRITICAL: ${alert.vehicleId} at ${alert.details.speed} km/h` }
+    });
+    
+    // Update alert with notification status
+    await collection.updateOne(
+      { _id: alert._id },
+      { $set: { notified: true, notifiedAt: new Date() } }
+    );
+  }
+};</pre>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Aspect</th><th>Current (Change Stream)</th><th>Atlas Triggers</th></tr>
+          <tr><td>Availability</td><td class="current">Tied to app server uptime</td><td class="enhanced">99.995% (Atlas managed)</td></tr>
+          <tr><td>Scaling</td><td class="current">Manual — add more servers</td><td class="enhanced">Automatic — event-driven</td></tr>
+          <tr><td>Retry on failure</td><td class="current">Must implement manually</td><td class="enhanced">Built-in with configurable retries</td></tr>
+          <tr><td>External integration</td><td class="current">Add HTTP client to app</td><td class="enhanced">Native HTTP service in functions</td></tr>
+          <tr><td>Cost</td><td class="current">Always-on server required</td><td class="enhanced">Pay-per-execution (serverless)</td></tr>
+        </table>
+      </div>
+
+      <!-- 3. STREAM PROCESSING -->
+      <div class="enhance-section">
+        <h3><span class="tag stream">Stream Processing</span> Atlas Stream Processing — Real-Time Analytics</h3>
+        <p class="subtitle">Process, aggregate, and transform streaming GPS data using MongoDB's native stream processor with MQL syntax</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+Post-hoc: Run $setWindowFields
+on stored data (after the fact)
+
+Limitation: Not truly real-time,
+queries scan large datasets</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Stream Processing</h5>
+            <pre>
+Pre-compute: Process GPS stream
+BEFORE it hits the database
+
+Benefit: Results available instantly,
+no heavy post-hoc queries needed</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>Tumbling Windows:</strong> Compute avg speed, distance every 1 minute per vehicle — results written to pre-aggregated collection</li>
+          <li><strong>Sliding Windows:</strong> Detect harsh braking in real-time (speed delta over 10s window) — emit alert immediately</li>
+          <li><strong>Native MQL:</strong> Uses same MongoDB query language — no Spark/Flink expertise needed</li>
+          <li><strong>Kafka Source/Sink:</strong> Read from Kafka topics, write to MongoDB collections or other Kafka topics</li>
+          <li><strong>Geofence Processing:</strong> Continuous geofence checks on the stream — no need to query after storage</li>
+        </ul>
+
+        <div class="pipeline-diagram">
+          <pre>
+// Atlas Stream Processor — Real-time Speed Violation Detection
+{
+  $source: { connectionName: "kafka-gps-ingest", topic: "gps-events" }
+},
+{
+  $tumblingWindow: {
+    interval: { size: 10, unit: "second" },
+    pipeline: [
+      { $group: {
+          _id: "$vehicleId",
+          avgSpeed: { $avg: "$speed" },
+          maxSpeed: { $max: "$speed" },
+          location: { $last: "$location" }
+      }},
+      { $match: { maxSpeed: { $gt: 60 } } }  // Speed limit check
+    ]
+  }
+},
+{
+  $merge: { into: { connectionName: "atlas-cluster", db: "ksrtc_vtms", coll: "speed_alerts" } }
+}
+
+// Sliding Window — Harsh Braking Detection
+{
+  $source: { connectionName: "kafka-gps-ingest", topic: "gps-events" }
+},
+{
+  $slidingWindow: {
+    interval: { size: 10, unit: "second" },
+    pipeline: [
+      { $setWindowFields: {
+          sortBy: { timestamp: 1 },
+          output: { prevSpeed: { $shift: { output: "$speed", by: -1 } } }
+      }},
+      { $addFields: { deceleration: { $subtract: ["$speed", "$prevSpeed"] } } },
+      { $match: { deceleration: { $lt: -20 } } }  // >20 km/h drop in 10s
+    ]
+  }
+},
+{
+  $emit: { connectionName: "atlas-cluster", db: "ksrtc_vtms", coll: "alerts" }
+}</pre>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric"><div class="val">&lt;100ms</div><div class="label">Processing Latency</div></div>
+          <div class="metric"><div class="val">∞</div><div class="label">Continuous (24/7)</div></div>
+          <div class="metric"><div class="val">MQL</div><div class="label">Query Language</div></div>
+          <div class="metric"><div class="val">0</div><div class="label">Infra to Manage</div></div>
+        </div>
+      </div>
+
+      <!-- 4. ONLINE ARCHIVE -->
+      <div class="enhance-section">
+        <h3><span class="tag archive">Archive</span> Online Archive — Automated Data Tiering</h3>
+        <p class="subtitle">Automatically move old GPS data to low-cost storage while keeping it queryable</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+ALL GPS data in hot storage (M30+)
+• 429K events = ~100MB (2 days)
+• 1 year = ~18GB
+• 5 years = ~90GB
+
+Cost: All on expensive SSD,
+queries slow as data grows</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Online Archive</h5>
+            <pre>
+Hot: Last 90 days (SSD) → fast queries
+Archive: >90 days (object storage) → cheap
+
+• Auto-tiered by archival rule
+• Still queryable via same connection
+• 80%+ cost reduction on old data</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>Cost Reduction:</strong> Archive storage costs ~$0.02/GB/month vs $2.30/GB for hot SSD — 99% cheaper for historical data</li>
+          <li><strong>Automatic:</strong> Set a rule (e.g., "archive GPS events older than 90 days") — Atlas handles the rest</li>
+          <li><strong>Still Queryable:</strong> Archived data remains queryable through the same connection string — transparent to the app</li>
+          <li><strong>Compliance:</strong> Keep 5+ years of GPS history for regulatory compliance without breaking the budget</li>
+          <li><strong>Performance:</strong> Hot cluster stays lean — queries on recent data remain fast</li>
+        </ul>
+
+        <div class="pipeline-diagram">
+          <pre>
+// Online Archive Rule Configuration
+{
+  "dbName": "ksrtc_vtms",
+  "collName": "gps_events",
+  "criteria": {
+    "type": "DATE",
+    "dateField": "timestamp",
+    "dateFormat": "ISODATE",
+    "expireAfterDays": 90    // Archive after 90 days
+  },
+  "partitionFields": [
+    { "fieldName": "metadata.vehicleId", "order": 0 },
+    { "fieldName": "timestamp", "order": 1 }
+  ]
+}
+
+// Querying archived data (transparent to app):
+db.gps_events.find({
+  "metadata.vehicleId": "KA-19-F-1001",
+  timestamp: { $gte: ISODate("2025-01-01"), $lt: ISODate("2025-06-01") }
+})
+// ↑ This query automatically spans both hot + archive tiers</pre>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Data Age</th><th>Storage Tier</th><th>Cost/GB/month</th><th>Query Speed</th></tr>
+          <tr><td>0–90 days</td><td class="enhanced">Hot (SSD)</td><td>$2.30</td><td>< 50ms</td></tr>
+          <tr><td>90 days – 5 years</td><td class="enhanced">Online Archive</td><td>$0.02</td><td>1–5 seconds</td></tr>
+          <tr><td>Without archive (all hot)</td><td class="current">Hot SSD (everything)</td><td>$2.30 × ALL data</td><td>Degrades over time</td></tr>
+        </table>
+
+        <div class="metric-row">
+          <div class="metric"><div class="val">99%</div><div class="label">Cost Reduction (old data)</div></div>
+          <div class="metric"><div class="val">5+ yrs</div><div class="label">Retention Affordable</div></div>
+          <div class="metric"><div class="val">Auto</div><div class="label">No Manual Migration</div></div>
+          <div class="metric"><div class="val">Same API</div><div class="label">Transparent Access</div></div>
+        </div>
+      </div>
+
+      <!-- 5. DATA FEDERATION -->
+      <div class="enhance-section">
+        <h3><span class="tag federation">Federation</span> Atlas Data Federation — Unified Cross-Source Queries</h3>
+        <p class="subtitle">Query across Atlas clusters, Online Archive, S3 buckets, and HTTP sources with a single MQL query</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+Reports query ONLY current cluster
+• Can't access archived data
+• Can't join with external systems
+• Yearly reports impossible without
+  keeping ALL data in hot storage</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Data Federation</h5>
+            <pre>
+Single query spans:
+• Hot cluster (recent 90 days)
+• Online Archive (90d – 5 years)
+• S3 bucket (external CSV/Parquet)
+• HTTP endpoints (weather API, etc.)
+
+→ Unified yearly/multi-year reports</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>Unified Reports:</strong> Generate yearly fleet performance reports querying across hot + archived GPS data seamlessly</li>
+          <li><strong>External Data Join:</strong> Enrich GPS data with weather (S3/HTTP), road condition data, or fuel station locations</li>
+          <li><strong>No ETL Needed:</strong> Query data where it lives — no need to copy/move data into a data warehouse</li>
+          <li><strong>SQL Interface:</strong> Expose federated data via Atlas SQL Interface for BI tools (Tableau, Power BI)</li>
+          <li><strong>Cost-Effective Analytics:</strong> Run heavy analytical queries against federated endpoint — doesn't impact production cluster</li>
+        </ul>
+
+        <div class="pipeline-diagram">
+          <pre>
+// Data Federation — Yearly Fleet Performance Report
+// Single query spans hot cluster + Online Archive + S3
+
+// Federated Database Configuration:
+{
+  "stores": [
+    { "name": "atlas-hot", "provider": "atlas", "clusterName": "KSRTC-Prod" },
+    { "name": "atlas-archive", "provider": "atlas", "clusterName": "KSRTC-Prod",
+      "readPreference": { "mode": "secondary" } },
+    { "name": "s3-weather", "provider": "s3", "bucket": "ksrtc-weather-data",
+      "region": "ap-south-1" }
+  ],
+  "databases": [{
+    "name": "federated_vtms",
+    "collections": [{
+      "name": "all_gps_events",
+      "dataSources": [
+        { "store": "atlas-hot", "database": "ksrtc_vtms", "collection": "gps_events" },
+        { "store": "atlas-archive", "database": "ksrtc_vtms", "collection": "gps_events" }
+      ]
+    }]
+  }]
+}
+
+// Query (runs across all tiers automatically):
+db.all_gps_events.aggregate([
+  { $match: { "metadata.vehicleId": "KA-19-F-1001",
+              timestamp: { $gte: ISODate("2025-01-01"), $lt: ISODate("2026-01-01") } } },
+  { $group: { _id: { $month: "$timestamp" },
+              totalKm: { $sum: "$distanceDelta" },
+              avgSpeed: { $avg: "$speed" },
+              maxSpeed: { $max: "$speed" } } },
+  { $sort: { "_id": 1 } }
+])
+// → Monthly performance for full year, querying hot + archive seamlessly</pre>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Use Case</th><th>Without Federation</th><th>With Federation</th></tr>
+          <tr><td>Yearly fleet report</td><td class="current">Keep all data in hot ($$$) or can't query</td><td class="enhanced">Query hot + archive seamlessly</td></tr>
+          <tr><td>Weather correlation</td><td class="current">Manual ETL into MongoDB</td><td class="enhanced">Join S3 weather data in query</td></tr>
+          <tr><td>BI tool access</td><td class="current">Custom API development</td><td class="enhanced">Atlas SQL Interface → Tableau/PowerBI</td></tr>
+          <tr><td>Production impact</td><td class="current">Heavy reports slow production</td><td class="enhanced">Federated queries isolated</td></tr>
+        </table>
+      </div>
+
+      <!-- COMBINED IMPACT -->
+      <div class="enhance-section" style="border-color: #4fc3f7;">
+        <h3>📈 Combined Impact — All Enhancements Together</h3>
+        <p class="subtitle">The complete picture when Kafka + Triggers + Stream Processing + Online Archive + Data Federation work together</p>
+
+        <div class="pipeline-diagram">
+          <pre>
+DATA FLOW (Enhanced):
+
+GPS Device (8,000 buses, 10s interval)
+    │
+    ▼
+<span style="color:#ff9800;">Kafka</span> (buffer, 80K msg/s, 7-day retention, replay)
+    │
+    ├──▶ <span style="color:#26a69a;">Atlas Stream Processor</span> (real-time windowed analytics)
+    │       ├── Tumbling: avg speed per 1-min bucket → pre_aggregated collection
+    │       ├── Sliding: harsh braking detection → alerts collection
+    │       └── Geofence: continuous boundary check → geofence_alerts
+    │
+    ├──▶ MongoDB Atlas (write raw GPS to gps_events Time Series)
+    │       │
+    │       ├── <span style="color:#ab47bc;">Atlas Trigger</span> (on alert insert)
+    │       │     ├── SMS notification to depot manager
+    │       │     ├── Push notification to driver app
+    │       │     └── Webhook to KSRTC command center
+    │       │
+    │       └── <span style="color:#78909c;">Online Archive</span> (auto-tier >90 days to object storage)
+    │
+    └──▶ <span style="color:#ef5350;">Data Federation</span> (yearly reports querying hot + archive + S3)</pre>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Metric</th><th>Current PoC</th><th>Enhanced Production</th></tr>
+          <tr><td>Ingestion capacity</td><td class="current">~5K GPS/sec</td><td class="enhanced">80K+ GPS/sec</td></tr>
+          <tr><td>Data loss risk</td><td class="current">Possible on app/DB failure</td><td class="enhanced">Zero — Kafka buffers</td></tr>
+          <tr><td>Alert latency</td><td class="current">~5s (Change Stream)</td><td class="enhanced">&lt;100ms (Stream Processor)</td></tr>
+          <tr><td>Notification delivery</td><td class="current">None (manual check)</td><td class="enhanced">Auto SMS/Push (Triggers)</td></tr>
+          <tr><td>Storage cost (5 years)</td><td class="current">~$200/month (all hot)</td><td class="enhanced">~$25/month (tiered)</td></tr>
+          <tr><td>Historical queries</td><td class="current">Only recent data</td><td class="enhanced">Full 5-year queryable (Federation)</td></tr>
+          <tr><td>Operational overhead</td><td class="current">Manage server process</td><td class="enhanced">Fully managed (serverless)</td></tr>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>
