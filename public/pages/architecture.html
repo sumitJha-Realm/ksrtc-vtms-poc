@@ -557,7 +557,7 @@ GPS Ping Arrives
         │    │         └── Log entry/exit event        │
         │    │  3. Overspeed check (speed > route limit)│
         │    │  4. Write alert to alerts collection    │
-        │    │  5. Future: ETA recalculation           │
+        │    │  5. ETA/ETD recalculation (active in PoC)│
         │    │  6. Future: Driver behavior scoring     │
         │    └─────────────────────────────────────────┘
         │         │
@@ -585,10 +585,95 @@ GPS Ping Arrives
           <tr><td>Overspeed</td><td>speed > route limit (60 km/h default)</td><td>Medium</td><td>< 1s from GPS ping</td></tr>
           <tr><td>Geofence Speed Violation</td><td>PIP check + zone speed limit exceeded</td><td>Medium/High</td><td>< 1s</td></tr>
           <tr><td>Geofence Entry/Exit</td><td>PIP state change detection</td><td>Low</td><td>< 1s</td></tr>
+          <tr><td>ETA/ETD Cascade</td><td>Snap-to-route + remaining distance + effective speed + dwell</td><td>N/A</td><td>< 1s update on each ping</td></tr>
+          <tr><td>Stop Arrival/Departure</td><td>Sequence-aware state update from route stop order + ETA next sequence</td><td>N/A</td><td>< 1s update on each ping</td></tr>
+          <tr><td>Stop Skip Detection</td><td>Missing expected sequence inferred from route order and skip alerts</td><td>Medium</td><td>< 1s (state update)</td></tr>
           <tr><td>Panic Button</td><td>panic=true in GPS payload</td><td>Critical</td><td>< 500ms</td></tr>
           <tr><td>Breakdown (future)</td><td>Speed=0 + ignition=ON for 5+ min</td><td>High</td><td>~5 min detection delay</td></tr>
         </tbody>
       </table>
+
+      <h3>ETA/ETD Logic — PoC vs Production</h3>
+      <div class="arch-diagram">
+POC (Current Demo):
+GPS ping → Change Stream → snap point to route line
+         → compute distance to downstream stops
+         → ETA = now + (remainingKm / effectiveSpeedKmh) + dwell padding
+         → ETD = ETA + dwell
+         → upsert trip_eta_predictions
+
+Production (Recommended):
+Kafka topic (key=vehicleId) → Stateful Worker/Flink
+  • map-match to route segment index
+  • speed smoothing + traffic multiplier + stop dwell model
+  • cascade ETA across all downstream stops
+  • confidence score + delay classification
+  • publish only meaningful deltas (for example > 30s shift)
+  • persist latest to MongoDB + push to dashboard/notifications
+
+Result:
+PoC gives deterministic near-real-time ETA for demo and customer walkthrough.
+Production adds traffic realism, better stability, confidence bands, and scale resilience.
+      </div>
+
+      <h3>Exact MongoDB Queries Used (PoC ETA)</h3>
+      <div class="arch-diagram" style="font-size:0.82rem;">
+// 1) Change Stream source (real-time trigger)
+db.vehicle_current_state.watch(
+  [{ $match: { operationType: { $in: ["insert", "update", "replace"] } } }],
+  { fullDocument: "updateLookup" }
+)
+
+// 2) Upsert latest ETA/ETD vector per bus
+db.trip_eta_predictions.updateOne(
+  { vehicleId: "KA-01-F-1001" },
+  {
+    $set: {
+      routeId: "RT001",
+      currentSpeed: 31.4,
+      currentDistanceAlongKm: 9.92,
+      predictions: [
+        { stopId: "S007", stopName: "Bommanahalli", sequence: 7, remainingKm: 1.56, eta: ISODate("..."), etd: ISODate("...") },
+        { stopId: "S008", stopName: "Electronic City Phase 1", sequence: 8, remainingKm: 8.74, eta: ISODate("..."), etd: ISODate("...") }
+      ],
+      updatedAt: new Date(),
+      source: "change_stream_worker"
+    }
+  },
+  { upsert: true }
+)
+
+// 3) Dashboard/API read
+db.trip_eta_predictions.findOne({ vehicleId: "KA-01-F-1001" })
+      </div>
+
+  <h3>Stop Arrival/Departure/Skip (Sequence-aware) — Query Logic</h3>
+  <div class="arch-diagram" style="font-size:0.82rem;">
+// 1) Route sequence source (ordered stopIds)
+const route = db.routes.findOne({ routeId: "RT001" })
+
+// 2) Stop metadata lookup for names/points
+const stops = db.bus_stops.find({ stopId: { $in: route.stopIds } }).toArray()
+
+// 3) Current sequence context from latest ETA snapshot
+const seqState = db.trip_eta_predictions.findOne({ vehicleId: "KA-01-F-1001" })
+// seqState.nextStopSequence = expected next stop
+
+// 4) Skip evidence from alert stream
+const skipAlerts = db.alerts.find({
+  vehicleId: "KA-01-F-1001",
+  type: "stop_skipped"
+}).sort({ timestamp: -1 }).limit(20).toArray()
+
+// 5) UI/API composes sequence status:
+// seq < nextStopSequence  => completed
+// seq == nextStopSequence => next expected
+// stopId in skip alerts   => skipped
+// else                    => pending
+
+// Implemented endpoint:
+// GET /api/dashboard/trip-progress/:vehicleId
+  </div>
 
       <div class="arch-highlight">
         <strong>Production Scaling Note:</strong> For 2x fleet size, we recommend adding a Kafka layer between ingestion and processing. The ingestion service writes to MongoDB AND publishes to Kafka simultaneously, giving sub-10ms processing latency and enabling multiple independent consumers.

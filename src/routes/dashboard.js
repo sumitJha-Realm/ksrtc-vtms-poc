@@ -76,13 +76,104 @@ router.get('/vehicle/:vehicleId', async (req, res) => {
   const db = getDB();
   const { vehicleId } = req.params;
 
-  const [currentState, vehicleInfo, recentAlerts] = await Promise.all([
+  const [currentState, vehicleInfo, recentAlerts, etaPrediction] = await Promise.all([
     db.collection('vehicle_current_state').findOne({ vehicleId }),
     db.collection('vehicles').findOne({ vehicleId }),
-    db.collection('alerts').find({ vehicleId }).sort({ timestamp: -1 }).limit(10).toArray()
+    db.collection('alerts').find({ vehicleId }).sort({ timestamp: -1 }).limit(10).toArray(),
+    db.collection('trip_eta_predictions').findOne({ vehicleId })
   ]);
 
-  res.json({ currentState, vehicleInfo, recentAlerts });
+  res.json({ currentState, vehicleInfo, recentAlerts, etaPrediction });
+});
+
+// GET /api/dashboard/eta/:vehicleId — current downstream ETA/ETD predictions
+router.get('/eta/:vehicleId', async (req, res) => {
+  const db = getDB();
+  const { vehicleId } = req.params;
+
+  const prediction = await db.collection('trip_eta_predictions').findOne({ vehicleId });
+  if (!prediction) {
+    return res.status(404).json({
+      message: 'ETA prediction not available yet for this vehicle',
+      vehicleId
+    });
+  }
+
+  res.json({
+    vehicleId,
+    routeId: prediction.routeId,
+    tripId: prediction.tripId,
+    updatedAt: prediction.updatedAt,
+    effectiveSpeedKmh: prediction.effectiveSpeedKmh,
+    nextStopSequence: prediction.nextStopSequence,
+    predictions: prediction.predictions || []
+  });
+});
+
+// GET /api/dashboard/trip-progress/:vehicleId — sequence-aware stop progress for UI
+router.get('/trip-progress/:vehicleId', async (req, res) => {
+  const db = getDB();
+  const { vehicleId } = req.params;
+
+  const [state, prediction] = await Promise.all([
+    db.collection('vehicle_current_state').findOne({ vehicleId }),
+    db.collection('trip_eta_predictions').findOne({ vehicleId })
+  ]);
+
+  const routeId = (prediction && prediction.routeId) || (state && state.routeId);
+  if (!routeId) {
+    return res.status(404).json({ message: 'Route not available for vehicle', vehicleId });
+  }
+
+  const [route, skippedAlerts] = await Promise.all([
+    db.collection('routes').findOne({ routeId }),
+    db.collection('alerts').find({ vehicleId, type: 'stop_skipped' }).sort({ timestamp: -1 }).limit(20).toArray()
+  ]);
+
+  if (!route || !Array.isArray(route.stopIds) || route.stopIds.length === 0) {
+    return res.status(404).json({ message: 'Route stop sequence not found', vehicleId, routeId });
+  }
+
+  const stopDocs = await db.collection('bus_stops')
+    .find({ stopId: { $in: route.stopIds } })
+    .project({ _id: 0, stopId: 1, name: 1 })
+    .toArray();
+
+  const stopNameMap = {};
+  for (const s of stopDocs) stopNameMap[s.stopId] = s.name;
+
+  const nextSeq = prediction && prediction.nextStopSequence ? prediction.nextStopSequence : 1;
+
+  const skippedStopIds = new Set(
+    skippedAlerts
+      .map((a) => a && a.details && (a.details.skippedStopId || a.details.stopId || a.details.skippedStop))
+      .filter(Boolean)
+  );
+
+  const sequence = route.stopIds.map((stopId, idx) => {
+    const seq = idx + 1;
+    let status = 'pending';
+    if (seq < nextSeq) status = 'completed';
+    if (seq === nextSeq) status = 'next';
+    if (skippedStopIds.has(stopId)) status = 'skipped';
+
+    return {
+      sequence: seq,
+      stopId,
+      stopName: stopNameMap[stopId] || stopId,
+      status
+    };
+  });
+
+  res.json({
+    vehicleId,
+    routeId,
+    nextStopSequence: nextSeq,
+    skippedCount: sequence.filter((s) => s.status === 'skipped').length,
+    lastUpdated: (prediction && prediction.updatedAt) || (state && state.lastUpdated) || new Date(),
+    etaPredictions: (prediction && prediction.predictions) || [],
+    sequence
+  });
 });
 
 module.exports = router;

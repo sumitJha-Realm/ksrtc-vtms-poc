@@ -3,9 +3,15 @@ const turf = require('@turf/turf');
 
 let geofenceCache = [];
 let routeCache = {};  // routeId -> turf LineString
+let routeStopsCache = {}; // routeId -> [{ stopId, name, sequence, coordinates, distanceAlongKm }]
+let stopByIdCache = {}; // stopId -> stop doc
 let changeStream = null;
 
 const ROUTE_DEVIATION_THRESHOLD_METERS = 100;
+const ETA_COLLECTION = 'trip_eta_predictions';
+const ETA_DWELL_SECONDS = Number(process.env.ETA_DWELL_SECONDS || 20);
+const ETA_MIN_MOVING_SPEED_KMH = Number(process.env.ETA_MIN_MOVING_SPEED_KMH || 12);
+const ETA_MAX_DOWNSTREAM_STOPS = Number(process.env.ETA_MAX_DOWNSTREAM_STOPS || 8);
 
 async function loadGeofences(db) {
   geofenceCache = await db.collection('geofences').find({}).toArray();
@@ -14,13 +20,126 @@ async function loadGeofences(db) {
 
 async function loadRoutes(db) {
   const routes = await db.collection('routes').find({}).toArray();
+  const stops = await db.collection('bus_stops').find({}).toArray();
+
+  stopByIdCache = {};
+  for (const stop of stops) {
+    stopByIdCache[stop.stopId] = stop;
+  }
+
   routeCache = {};
+  routeStopsCache = {};
+
   for (const route of routes) {
     if (route.geometry && route.geometry.coordinates && route.geometry.coordinates.length >= 2) {
-      routeCache[route.routeId] = turf.lineString(route.geometry.coordinates);
+      const line = turf.lineString(route.geometry.coordinates);
+      routeCache[route.routeId] = line;
+
+      const orderedStops = [];
+      if (Array.isArray(route.stopIds)) {
+        for (let i = 0; i < route.stopIds.length; i++) {
+          const stopId = route.stopIds[i];
+          const stop = stopByIdCache[stopId];
+          if (!stop || !stop.location || !Array.isArray(stop.location.coordinates)) continue;
+
+          const stopPoint = turf.point(stop.location.coordinates);
+          const nearest = turf.nearestPointOnLine(line, stopPoint, { units: 'kilometers' });
+
+          orderedStops.push({
+            stopId,
+            name: stop.name,
+            sequence: i + 1,
+            coordinates: stop.location.coordinates,
+            distanceAlongKm: nearest.properties.location
+          });
+        }
+      }
+      routeStopsCache[route.routeId] = orderedStops;
     }
   }
-  console.log(`   Loaded ${Object.keys(routeCache).length} routes into memory cache`);
+  console.log(`   Loaded ${Object.keys(routeCache).length} routes into memory cache (+ stop order for ETA)`);
+}
+
+function estimateDownstreamEta(event) {
+  const routeId = event.metadata.routeId;
+  const routeLine = routeCache[routeId];
+  const routeStops = routeStopsCache[routeId];
+
+  if (!routeId || !routeLine || !Array.isArray(routeStops) || routeStops.length === 0) {
+    return null;
+  }
+
+  if (!event.location || !Array.isArray(event.location.coordinates)) {
+    return null;
+  }
+
+  const busPoint = turf.point(event.location.coordinates);
+  const snapped = turf.nearestPointOnLine(routeLine, busPoint, { units: 'kilometers' });
+  const currentDistanceAlongKm = snapped.properties.location;
+
+  const effectiveSpeedKmh = Math.max(Number(event.speed) || 0, ETA_MIN_MOVING_SPEED_KMH);
+  const nowTs = event.timestamp ? new Date(event.timestamp) : new Date();
+
+  // Find next stop ahead of current projected position.
+  let nextStopIndex = routeStops.findIndex((s) => s.distanceAlongKm >= currentDistanceAlongKm);
+  if (nextStopIndex === -1) nextStopIndex = routeStops.length - 1;
+
+  const etaStops = [];
+  for (let i = nextStopIndex; i < routeStops.length && etaStops.length < ETA_MAX_DOWNSTREAM_STOPS; i++) {
+    const stop = routeStops[i];
+    const remainingKm = Math.max(0, stop.distanceAlongKm - currentDistanceAlongKm);
+    const travelSeconds = Math.round((remainingKm / effectiveSpeedKmh) * 3600);
+
+    // Add small cumulative dwell for intermediate stops to avoid too-optimistic ETAs.
+    const stopsAhead = i - nextStopIndex;
+    const dwellSeconds = stopsAhead * ETA_DWELL_SECONDS;
+    const etaTs = new Date(nowTs.getTime() + (travelSeconds + dwellSeconds) * 1000);
+
+    etaStops.push({
+      stopId: stop.stopId,
+      stopName: stop.name,
+      sequence: stop.sequence,
+      remainingKm: Number(remainingKm.toFixed(2)),
+      eta: etaTs,
+      etd: new Date(etaTs.getTime() + ETA_DWELL_SECONDS * 1000)
+    });
+  }
+
+  return {
+    routeId,
+    effectiveSpeedKmh,
+    currentDistanceAlongKm: Number(currentDistanceAlongKm.toFixed(2)),
+    nextStopSequence: routeStops[nextStopIndex] ? routeStops[nextStopIndex].sequence : null,
+    stops: etaStops
+  };
+}
+
+async function upsertEtaPrediction(db, event, etaResult) {
+  if (!etaResult) return;
+
+  const vehicleId = event.metadata.vehicleId;
+  if (!vehicleId) return;
+
+  await db.collection(ETA_COLLECTION).updateOne(
+    { vehicleId },
+    {
+      $set: {
+        vehicleId,
+        routeId: etaResult.routeId,
+        tripId: event.metadata.tripId || null,
+        depotId: event.metadata.depotId,
+        currentLocation: event.location,
+        currentSpeed: event.speed,
+        effectiveSpeedKmh: etaResult.effectiveSpeedKmh,
+        currentDistanceAlongKm: etaResult.currentDistanceAlongKm,
+        nextStopSequence: etaResult.nextStopSequence,
+        predictions: etaResult.stops,
+        updatedAt: new Date(),
+        source: 'change_stream_worker'
+      }
+    },
+    { upsert: true }
+  );
 }
 
 function checkRouteDeviation(event) {
@@ -106,6 +225,10 @@ async function processGPSEvent(db, event) {
       details: { distance: `${deviationDistance}m from corridor`, threshold: `${ROUTE_DEVIATION_THRESHOLD_METERS}m` }
     });
   }
+
+  // 4. ETA/ETD cascade for downstream stops (real-time, per ping)
+  const etaResult = estimateDownstreamEta(event);
+  await upsertEtaPrediction(db, event, etaResult);
 }
 
 async function startChangeStreamProcessor() {

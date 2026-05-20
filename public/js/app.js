@@ -234,6 +234,25 @@ function getVehicleIcon(status, heading, speed) {
   }
 }
 
+function buildVehiclePopupHtml(v) {
+  const routeInfo = routeLayers[v.routeId];
+  const routeLabel = routeInfo ? routeInfo.name : (v.routeId || 'N/A');
+  const routeColor = routeInfo ? routeInfo.color : '#78909c';
+  const speedVal = Number(v.speed || 0).toFixed(1);
+
+  return `
+    <strong>${v.vehicleId}</strong><br>
+    Speed: ${speedVal} km/h<br>
+    Status: <span style="color:${(STATUS_CONFIG[v.status] || STATUS_CONFIG.stopped).color}">${v.status}</span><br>
+    Route: <span style="color:${routeColor};font-weight:600;">${routeLabel}</span><br>
+    Depot: ${v.depotId || 'N/A'}<br>
+    <small>Updated: ${v.lastUpdated ? new Date(v.lastUpdated).toLocaleTimeString() : '--'}</small><br>
+    <a href="#" onclick="highlightRoute('${v.routeId}');return false;" style="color:#4fc3f7;">⬤ Highlight Route</a> |
+    <a href="#" onclick="showRouteOnMap('${v.vehicleId}','${v.routeId}');return false;" style="color:#4fc3f7;">Show Stops</a> |
+    <a href="/playback?vehicle=${v.vehicleId}" style="color:#4fc3f7;">Playback →</a>
+  `;
+}
+
 function updateMapMarkers(vehicles) {
   // Remove old markers that no longer exist
   const currentIds = new Set(vehicles.map(v => v.vehicleId));
@@ -252,24 +271,11 @@ function updateMapMarkers(vehicles) {
     if (markers[v.vehicleId]) {
       markers[v.vehicleId].setLatLng([lat, lon]);
       markers[v.vehicleId].setIcon(icon);
+      markers[v.vehicleId].setPopupContent(buildVehiclePopupHtml(v));
     } else {
-      const routeInfo = routeLayers[v.routeId];
-      const routeLabel = routeInfo ? routeInfo.name : (v.routeId || 'N/A');
-      const routeColor = routeInfo ? routeInfo.color : '#78909c';
-
       markers[v.vehicleId] = L.marker([lat, lon], { icon })
         .addTo(map)
-        .bindPopup(`
-          <strong>${v.vehicleId}</strong><br>
-          Speed: ${v.speed} km/h<br>
-          Status: <span style="color:${(STATUS_CONFIG[v.status]||STATUS_CONFIG.stopped).color}">${v.status}</span><br>
-          Route: <span style="color:${routeColor};font-weight:600;">${routeLabel}</span><br>
-          Depot: ${v.depotId || 'N/A'}<br>
-          <small>Updated: ${new Date(v.lastUpdated).toLocaleTimeString()}</small><br>
-          <a href="#" onclick="highlightRoute('${v.routeId}');return false;" style="color:#4fc3f7;">⬤ Highlight Route</a> |
-          <a href="#" onclick="showRouteOnMap('${v.vehicleId}','${v.routeId}');return false;" style="color:#4fc3f7;">Show Stops</a> |
-          <a href="/playback?vehicle=${v.vehicleId}" style="color:#4fc3f7;">Playback →</a>
-        `)
+        .bindPopup(buildVehiclePopupHtml(v))
         .on('click', () => showVehicleDetail(v.vehicleId));
     }
   });
@@ -382,29 +388,127 @@ function distToSegment(p, a, b) {
 }
 
 async function showVehicleDetail(vehicleId) {
-  const res = await fetch(`/api/dashboard/vehicle/${vehicleId}`);
-  const data = await res.json();
+  const [detailRes, progressRes] = await Promise.all([
+    fetch(`/api/dashboard/vehicle/${vehicleId}`),
+    fetch(`/api/dashboard/trip-progress/${vehicleId}`)
+  ]);
+  const data = await detailRes.json();
+  const tripProgress = progressRes.ok ? await progressRes.json() : null;
   const panel = document.getElementById('vehicleDetailPanel');
   const detail = document.getElementById('vehicleDetail');
 
   panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const cs = data.currentState || {};
   const vi = data.vehicleInfo || {};
+  const eta = data.etaPrediction || null;
+
+  const sequenceHtml = tripProgress && Array.isArray(tripProgress.sequence)
+    ? `
+      <div class="detail-row" style="margin-top:0.8rem; border-bottom:none; padding-bottom:0.2rem;">
+        <span class="label" style="color:#4fc3f7;font-weight:700;">Stop Sequence Progress</span>
+        <button class="btn btn-sm" style="padding:0.2rem 0.45rem;font-size:0.7rem;" onclick="toggleTripExplain()">Explain</button>
+      </div>
+      <div id="tripExplainBox" style="display:none; background:#0f1923; border:1px solid #2a3a4a; border-radius:6px; padding:0.55rem; margin:0.4rem 0 0.7rem 0; font-size:0.76rem; line-height:1.45; color:#b0bec5;">
+        <div style="color:#4fc3f7;font-weight:600;margin-bottom:0.25rem;">Sequence-aware stop detection in PoC UI</div>
+        <div>1) Route stop order comes from <strong>routes.stopIds</strong>.</div>
+        <div>2) Next expected sequence comes from latest ETA prediction.</div>
+        <div>3) Stops before expected are marked completed; expected is highlighted; skip alerts mark skipped stops.</div>
+        <div style="margin-top:0.35rem;color:#4fc3f7;font-weight:600;">Exact MongoDB queries used</div>
+        <pre style="white-space:pre-wrap;background:#111b25;border:1px solid #2a3a4a;padding:0.45rem;border-radius:6px;color:#9ad5c0;margin-top:0.2rem;">db.routes.findOne({ routeId })
+db.bus_stops.find({ stopId: { $in: route.stopIds } })
+db.trip_eta_predictions.findOne({ vehicleId })
+db.alerts.find({ vehicleId, type: "stop_skipped" }).sort({ timestamp: -1 })</pre>
+      </div>
+      <div class="detail-row"><span class="label">Next Expected Stop</span><span class="value">#${tripProgress.nextStopSequence || '--'}</span></div>
+      <div class="detail-row"><span class="label">Skipped Stops</span><span class="value" style="color:${tripProgress.skippedCount > 0 ? '#f44336' : '#4caf50'}">${tripProgress.skippedCount || 0}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.55rem;">
+        ${tripProgress.sequence.slice(0, 12).map((s) => {
+          const chipColor = s.status === 'completed' ? '#4caf50' : (s.status === 'next' ? '#4fc3f7' : (s.status === 'skipped' ? '#f44336' : '#78909c'));
+          return `<span title="${s.sequence}. ${s.stopName} (${s.status})" style="font-size:0.68rem;padding:0.16rem 0.38rem;border-radius:10px;border:1px solid ${chipColor};color:${chipColor};">${s.sequence}</span>`;
+        }).join('')}
+      </div>
+    `
+    : `<div style="margin-top:0.8rem;color:#78909c;font-size:0.82rem;">Trip sequence state is not available yet for this vehicle.</div>`;
+
+  const etaHtml = eta && Array.isArray(eta.predictions) && eta.predictions.length > 0
+    ? `
+      <div class="detail-row" style="margin-top:0.8rem; border-bottom:none; padding-bottom:0.2rem;">
+        <span class="label" style="color:#4fc3f7;font-weight:700;">ETA / ETD (Downstream Stops)</span>
+        <button class="btn btn-sm" style="padding:0.2rem 0.45rem;font-size:0.7rem;" onclick="toggleEtaExplain()">Explain</button>
+      </div>
+      <div id="etaExplainBox" style="display:none; background:#0f1923; border:1px solid #2a3a4a; border-radius:6px; padding:0.55rem; margin:0.4rem 0 0.7rem 0; font-size:0.76rem; line-height:1.45; color:#b0bec5;">
+        <div style="color:#4fc3f7;font-weight:600;margin-bottom:0.25rem;">How ETA/ETD works in this PoC</div>
+        <div>1) Every GPS update in <strong>vehicle_current_state</strong> triggers Change Stream processing.</div>
+        <div>2) Bus point is snapped to route line (turf nearest point on line).</div>
+        <div>3) Remaining distance to each downstream stop is computed.</div>
+        <div>4) ETA uses effective speed + small dwell per intermediate stop; ETD = ETA + dwell.</div>
+        <div style="margin-top:0.35rem;color:#4fc3f7;font-weight:600;">Exact MongoDB queries (PoC)</div>
+        <pre style="white-space:pre-wrap;background:#111b25;border:1px solid #2a3a4a;padding:0.45rem;border-radius:6px;color:#9ad5c0;margin-top:0.2rem;">// Worker writes latest ETA vector
+db.trip_eta_predictions.updateOne(
+  { vehicleId: event.metadata.vehicleId },
+  {
+    $set: {
+      routeId: event.metadata.routeId,
+      currentSpeed: event.speed,
+      predictions: [
+        { stopId, stopName, sequence, remainingKm, eta, etd }
+      ],
+      updatedAt: new Date()
+    }
+  },
+  { upsert: true }
+)
+
+// UI/API reads latest ETA
+db.trip_eta_predictions.findOne({ vehicleId: "KA-01-F-1001" })</pre>
+        <div style="margin-top:0.35rem;color:#4fc3f7;font-weight:600;">Production recommendation</div>
+        <div>Use Kafka + Worker/Flink with traffic and dwell models, confidence score, and publish only meaningful ETA deltas.</div>
+      </div>
+      <div style="font-size:0.78rem;color:#90a4ae;margin-bottom:0.4rem;">
+        Updated: ${eta.updatedAt ? new Date(eta.updatedAt).toLocaleTimeString() : '--'}
+      </div>
+      ${eta.predictions.slice(0, 4).map((p) => `
+        <div class="detail-row">
+          <span class="label">${p.sequence}. ${p.stopName}</span>
+          <span class="value">${p.eta ? new Date(p.eta).toLocaleTimeString() : '--'}</span>
+        </div>
+        <div class="detail-row" style="margin-top:-6px;">
+          <span class="label">ETD</span>
+          <span class="value">${p.etd ? new Date(p.etd).toLocaleTimeString() : '--'}</span>
+        </div>
+      `).join('')}
+    `
+    : `<div style="margin-top:1rem;color:#78909c;font-size:0.82rem;">ETA is initializing. Start simulator and click this vehicle again in a few seconds.</div>`;
 
   detail.innerHTML = `
     <div class="detail-row"><span class="label">Vehicle ID</span><span class="value">${vehicleId}</span></div>
     <div class="detail-row"><span class="label">Type</span><span class="value">${vi.type || 'N/A'}</span></div>
     <div class="detail-row"><span class="label">Route</span><span class="value">${cs.routeId || 'N/A'}</span></div>
-    <div class="detail-row"><span class="label">Speed</span><span class="value">${cs.speed || 0} km/h</span></div>
+    <div class="detail-row"><span class="label">Speed</span><span class="value">${Number(cs.speed || 0).toFixed(1)} km/h</span></div>
     <div class="detail-row"><span class="label">Status</span><span class="value">${cs.status || 'unknown'}</span></div>
     <div class="detail-row"><span class="label">Depot</span><span class="value">${cs.depotId || 'N/A'}</span></div>
     <div class="detail-row"><span class="label">Ignition</span><span class="value">${cs.ignition ? 'ON' : 'OFF'}</span></div>
     <div class="detail-row"><span class="label">Last Update</span><span class="value">${cs.lastUpdated ? new Date(cs.lastUpdated).toLocaleTimeString() : '--'}</span></div>
+    ${etaHtml}
+    ${sequenceHtml}
     <br>
     <a href="/playback?vehicle=${vehicleId}" class="btn btn-sm">📍 Route Playback</a>
     ${data.recentAlerts.length > 0 ? '<h4 style="margin-top:1rem;color:#f44336;">Recent Alerts</h4>' + 
       data.recentAlerts.slice(0, 3).map(a => `<div class="alert-item ${a.severity}"><span class="alert-type">${a.type.replace('_', ' ')}</span><br><span class="alert-time">${new Date(a.timestamp).toLocaleString()}</span></div>`).join('') : ''}
   `;
+}
+
+function toggleEtaExplain() {
+  const box = document.getElementById('etaExplainBox');
+  if (!box) return;
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleTripExplain() {
+  const box = document.getElementById('tripExplainBox');
+  if (!box) return;
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
 }
 
 async function loadAlerts() {

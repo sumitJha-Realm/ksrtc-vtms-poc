@@ -32,6 +32,7 @@ async function setupCollections() {
     'schedules',
     'depots',
     'alerts',
+    'trip_eta_predictions',
     'gps_devices',
     'audit_logs',
     'users',
@@ -94,6 +95,12 @@ async function setupCollections() {
   await db.collection('alerts').createIndex({ type: 1, status: 1 });
   await db.collection('alerts').createIndex({ depotId: 1, type: 1, timestamp: -1 });
   console.log('✓ alerts indexes');
+
+  // Trip ETA predictions
+  await db.collection('trip_eta_predictions').createIndex({ vehicleId: 1 }, { unique: true });
+  await db.collection('trip_eta_predictions').createIndex({ routeId: 1, updatedAt: -1 });
+  await db.collection('trip_eta_predictions').createIndex({ updatedAt: -1 });
+  console.log('✓ trip_eta_predictions indexes');
 
   // Audit Logs (TTL: 1 year)
   await db.collection('audit_logs').createIndex({ timestamp: 1 }, { expireAfterSeconds: 31536000 });
