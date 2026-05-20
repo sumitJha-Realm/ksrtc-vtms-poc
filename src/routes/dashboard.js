@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
+const { getTimingSnapshot } = require('../services/timingMetrics');
 
 // GET /api/dashboard/summary — real-time fleet summary
 router.get('/summary', async (req, res) => {
@@ -174,6 +175,11 @@ router.get('/trip-progress/:vehicleId', async (req, res) => {
     etaPredictions: (prediction && prediction.predictions) || [],
     sequence
   });
+});
+
+// GET /api/dashboard/timing — global DB and operation timing snapshot
+router.get('/timing', (req, res) => {
+  res.json(getTimingSnapshot());
 });
 
 module.exports = router;

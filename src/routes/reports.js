@@ -2,17 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
 
+function nowMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
 // GET /api/reports/tracking-summary — Vehicle Tracking Summary
 router.get('/tracking-summary', async (req, res) => {
   const db = getDB();
-  const { depotId, date } = req.query;
+  const { depotId, date, vehicleId } = req.query;
   const targetDate = date ? new Date(date) : new Date();
   const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
   const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
 
   const matchStage = { timestamp: { $gte: startOfDay, $lte: endOfDay } };
   if (depotId) matchStage['metadata.depotId'] = depotId;
+  if (vehicleId) matchStage['metadata.vehicleId'] = vehicleId;
 
+  const pipelineStartMs = nowMs();
   const pipeline = [
     { $match: matchStage },
     {
@@ -41,30 +47,46 @@ router.get('/tracking-summary', async (req, res) => {
   ];
 
   const summary = await db.collection('gps_events').aggregate(pipeline).toArray();
-  res.json({ report: 'Vehicle Tracking Summary', date: startOfDay, vehicles: summary });
+  const pipelineEndMs = nowMs();
+  const timing = { aggregationMs: pipelineEndMs - pipelineStartMs };
+  res.json({ report: 'Vehicle Tracking Summary', date: startOfDay, vehicles: summary, timing });
 });
 
 // GET /api/reports/overspeed — Overspeeding Violations
 router.get('/overspeed', async (req, res) => {
   const db = getDB();
-  const { depotId, from, to } = req.query;
+  const { depotId, from, to, vehicleId } = req.query;
   const filter = { type: 'overspeed' };
   if (depotId) filter.depotId = depotId;
+  if (vehicleId) filter.vehicleId = vehicleId;
   if (from && to) filter.timestamp = { $gte: new Date(from), $lte: new Date(to) };
 
+  const violationsDbStartMs = nowMs();
   const violations = await db.collection('alerts')
     .find(filter)
     .sort({ timestamp: -1 })
     .toArray();
+  const violationsDbMs = nowMs() - violationsDbStartMs;
 
   // Aggregation by vehicle
+  const byVehicleDbStartMs = nowMs();
   const byVehicle = await db.collection('alerts').aggregate([
     { $match: filter },
     { $group: { _id: '$vehicleId', count: { $sum: 1 }, maxSpeed: { $max: '$details.speed' } } },
     { $sort: { count: -1 } }
   ]).toArray();
+  const byVehicleDbMs = nowMs() - byVehicleDbStartMs;
 
-  res.json({ report: 'Overspeeding Violations', violations, byVehicle, total: violations.length });
+  res.json({ 
+    report: 'Overspeeding Violations', 
+    violations, 
+    byVehicle, 
+    total: violations.length,
+    timing: {
+      queryMs: violationsDbMs,
+      aggregationMs: byVehicleDbMs
+    }
+  });
 });
 
 // GET /api/reports/schedule-adherence — using window functions
@@ -76,15 +98,18 @@ router.get('/schedule-adherence', async (req, res) => {
   const endOfDay = new Date(new Date(targetDate).setHours(23, 59, 59, 999));
 
   // Get schedule for this vehicle
+  const schedulesStartMs = nowMs();
   const schedules = await db.collection('schedules')
     .find(vehicleId ? { vehicleId } : {})
     .limit(20)
     .toArray();
+  const schedulesEndMs = nowMs();
 
   // Get actual GPS data near bus stops using time series window functions
   const matchFilter = { timestamp: { $gte: startOfDay, $lte: endOfDay } };
   if (vehicleId) matchFilter['metadata.vehicleId'] = vehicleId;
 
+  const pipelineStartMs = nowMs();
   const pipeline = [
     { $match: matchFilter },
     {
@@ -114,13 +139,19 @@ router.get('/schedule-adherence', async (req, res) => {
   ];
 
   const actualStops = await db.collection('gps_events').aggregate(pipeline).toArray();
+  const pipelineEndMs = nowMs();
+  const timing = {
+    queryMs: schedulesEndMs - schedulesStartMs,
+    aggregationMs: pipelineEndMs - pipelineStartMs
+  };
 
   res.json({
     report: 'Schedule Adherence',
     date: startOfDay,
     schedules: schedules.slice(0, 5),
     actualStopEvents: actualStops,
-    note: 'Compare actualStopEvents timestamps with schedule expected times to compute deviation'
+    note: 'Compare actualStopEvents timestamps with schedule expected times to compute deviation',
+    timing
   });
 });
 
@@ -135,6 +166,7 @@ router.get('/harsh-events', async (req, res) => {
   if (vehicleId) matchFilter['metadata.vehicleId'] = vehicleId;
 
   // Use $setWindowFields to compute acceleration between consecutive pings
+  const pipelineStartMs = nowMs();
   const pipeline = [
     { $match: matchFilter },
     {
@@ -202,12 +234,15 @@ router.get('/harsh-events', async (req, res) => {
   ];
 
   const events = await db.collection('gps_events').aggregate(pipeline).toArray();
+  const pipelineEndMs = nowMs();
+  const timing = { aggregationMs: pipelineEndMs - pipelineStartMs };
   res.json({
     report: 'Harsh Driving Events (Window Function Analysis)',
     period: { from: startDate, to: endDate },
     events,
     total: events.length,
-    note: 'Computed using $setWindowFields — acceleration derived from consecutive GPS readings'
+    note: 'Computed using $setWindowFields — acceleration derived from consecutive GPS readings',
+    timing
   });
 });
 
@@ -222,6 +257,7 @@ router.get('/unauthorized-stops', async (req, res) => {
   if (vehicleId) matchFilter['metadata.vehicleId'] = vehicleId;
 
   // Detect sustained stationary periods (>3 min = 18 consecutive pings at speed 0)
+  const pipelineStartMs = nowMs();
   const pipeline = [
     { $match: matchFilter },
     {
@@ -264,12 +300,15 @@ router.get('/unauthorized-stops', async (req, res) => {
   ];
 
   const stops = await db.collection('gps_events').aggregate(pipeline).toArray();
+  const pipelineEndMs = nowMs();
+  const timing = { aggregationMs: pipelineEndMs - pipelineStartMs };
   res.json({
     report: 'Unauthorized Stops (Window Function Detection)',
     period: { from: startDate, to: endDate },
     stops,
     total: stops.length,
-    note: 'Detected via $setWindowFields counting consecutive stationary pings over 3-minute sliding window'
+    note: 'Detected via $setWindowFields counting consecutive stationary pings over 3-minute sliding window',
+    timing
   });
 });
 
@@ -277,18 +316,27 @@ router.get('/unauthorized-stops', async (req, res) => {
 router.get('/breakdown', async (req, res) => {
   const db = getDB();
   const filter = { type: 'breakdown' };
-  const { depotId, from, to } = req.query;
+  const { depotId, from, to, vehicleId } = req.query;
   if (depotId) filter.depotId = depotId;
+  if (vehicleId) filter.vehicleId = vehicleId;
   if (from && to) filter.timestamp = { $gte: new Date(from), $lte: new Date(to) };
 
+  const queryStartMs = nowMs();
   const incidents = await db.collection('alerts').find(filter).sort({ timestamp: -1 }).toArray();
-  res.json({ report: 'Breakdown Incidents', incidents, total: incidents.length });
+  const queryEndMs = nowMs();
+  const timing = { queryMs: queryEndMs - queryStartMs };
+  res.json({ report: 'Breakdown Incidents', incidents, total: incidents.length, timing });
 });
 
 // GET /api/reports/depot-status — Depot-wise Vehicle Status
 router.get('/depot-status', async (req, res) => {
   const db = getDB();
-  const status = await db.collection('vehicle_current_state').aggregate([
+  const { vehicleId } = req.query;
+  const pipeline = [];
+  if (vehicleId) {
+    pipeline.push({ $match: { vehicleId } });
+  }
+  pipeline.push(
     {
       $group: {
         _id: '$depotId',
@@ -304,32 +352,49 @@ router.get('/depot-status', async (req, res) => {
     },
     { $unwind: '$depot' },
     { $project: { depotId: '$_id', depotName: '$depot.name', division: '$depot.division', total: 1, running: 1, idle: 1, stopped: 1, avgSpeed: { $round: ['$avgSpeed', 1] } } }
-  ]).toArray();
+  );
 
-  res.json({ report: 'Depot-wise Vehicle Status', depots: status });
+  const pipelineStartMs = nowMs();
+  const status = await db.collection('vehicle_current_state').aggregate(pipeline).toArray();
+  const pipelineEndMs = nowMs();
+  const timing = { aggregationMs: pipelineEndMs - pipelineStartMs };
+
+  res.json({ report: 'Depot-wise Vehicle Status', depots: status, timing });
 });
 
 // GET /api/reports/stop-skipping — Bus Stop Skipping using window functions
 router.get('/stop-skipping', async (req, res) => {
   const db = getDB();
+  const { vehicleId } = req.query;
+  const filter = { type: 'stop_skipped' };
+  if (vehicleId) filter.vehicleId = vehicleId;
+  const queryStartMs = nowMs();
   const alerts = await db.collection('alerts')
-    .find({ type: 'stop_skipped' })
+    .find(filter)
     .sort({ timestamp: -1 })
     .limit(50)
     .toArray();
+  const queryEndMs = nowMs();
+  const timing = { queryMs: queryEndMs - queryStartMs };
 
-  res.json({ report: 'Bus Stop Skipping', incidents: alerts, total: alerts.length });
+  res.json({ report: 'Bus Stop Skipping', incidents: alerts, total: alerts.length, timing });
 });
 
 // GET /api/reports/panic — Panic/SOS events
 router.get('/panic', async (req, res) => {
   const db = getDB();
+  const { vehicleId } = req.query;
+  const filter = { type: 'panic' };
+  if (vehicleId) filter.vehicleId = vehicleId;
+  const queryStartMs = nowMs();
   const events = await db.collection('alerts')
-    .find({ type: 'panic' })
+    .find(filter)
     .sort({ timestamp: -1 })
     .toArray();
+  const queryEndMs = nowMs();
+  const timing = { queryMs: queryEndMs - queryStartMs };
 
-  res.json({ report: 'Panic/SOS Events', events, total: events.length });
+  res.json({ report: 'Panic/SOS Events', events, total: events.length, timing });
 });
 
 // GET /api/reports/event-context — GPS trail around a specific event for map visualization
@@ -346,6 +411,7 @@ router.get('/event-context', async (req, res) => {
   const before = new Date(eventTime.getTime() - halfWindow);
   const after = new Date(eventTime.getTime() + halfWindow);
 
+  const pipelineStartMs = nowMs();
   const pipeline = [
     {
       $match: {
@@ -372,6 +438,7 @@ router.get('/event-context', async (req, res) => {
   ];
 
   const trail = await db.collection('gps_events').aggregate(pipeline).toArray();
+  const pipelineEndMs = nowMs();
 
   // Get route geometry
   let routeGeometry = null;
@@ -380,7 +447,8 @@ router.get('/event-context', async (req, res) => {
     if (route) routeGeometry = route.geometry;
   }
 
-  res.json({ trail, routeGeometry, eventTime: eventTime.toISOString() });
+  const timing = { aggregationMs: pipelineEndMs - pipelineStartMs };
+  res.json({ trail, routeGeometry, eventTime: eventTime.toISOString(), timing });
 });
 
 module.exports = router;

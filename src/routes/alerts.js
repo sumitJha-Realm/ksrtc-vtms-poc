@@ -2,9 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
 
+function nowMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
 // GET /api/alerts — list alerts with filters
 router.get('/', async (req, res) => {
   const db = getDB();
+  const listStartMs = nowMs();
   const { type, status, depotId, vehicleId, limit = 50 } = req.query;
   const filter = {};
   if (type) filter.type = type;
@@ -12,18 +17,33 @@ router.get('/', async (req, res) => {
   if (depotId) filter.depotId = depotId;
   if (vehicleId) filter.vehicleId = vehicleId;
 
+  const alertsDbStartMs = nowMs();
   const alerts = await db.collection('alerts')
     .find(filter)
     .sort({ timestamp: -1 })
     .limit(parseInt(limit))
     .toArray();
+  const alertsDbMs = nowMs() - alertsDbStartMs;
 
+  const countsDbStartMs = nowMs();
   const counts = await db.collection('alerts').aggregate([
     { $match: { status: 'active' } },
     { $group: { _id: '$severity', count: { $sum: 1 } } }
   ]).toArray();
+  const countsDbMs = nowMs() - countsDbStartMs;
 
-  res.json({ alerts, activeCounts: counts, total: alerts.length });
+  const listTotalMs = nowMs() - listStartMs;
+  res.json({ 
+    alerts, 
+    activeCounts: counts, 
+    total: alerts.length,
+    timing: {
+      totalMs: listTotalMs,
+      alertsDbMs,
+      countsDbMs,
+      appMs: Math.max(listTotalMs - alertsDbMs - countsDbMs, 0)
+    }
+  });
 });
 
 // PUT /api/alerts/:alertId/acknowledge
@@ -57,15 +77,20 @@ router.put('/:alertId/close', async (req, res) => {
 // GET /api/alerts/:alertId/context — GPS trail around an alert event (±2 min)
 router.get('/:alertId/context', async (req, res) => {
   const db = getDB();
+  const contextStartMs = nowMs();
   const { alertId } = req.params;
 
+  const alertDbStartMs = nowMs();
   const alert = await db.collection('alerts').findOne({ alertId });
+  const alertDbMs = nowMs() - alertDbStartMs;
+  
   if (!alert) return res.status(404).json({ error: 'Alert not found' });
 
   const alertTime = new Date(alert.timestamp);
   const before = new Date(alertTime.getTime() - 2 * 60 * 1000); // 2 min before
   const after = new Date(alertTime.getTime() + 2 * 60 * 1000);  // 2 min after
 
+  const trailDbStartMs = nowMs();
   const pipeline = [
     {
       $match: {
@@ -104,19 +129,31 @@ router.get('/:alertId/context', async (req, res) => {
   ];
 
   const trail = await db.collection('gps_events').aggregate(pipeline).toArray();
+  const trailDbMs = nowMs() - trailDbStartMs;
 
   // Get route geometry for reference line
   let routeGeometry = null;
+  let routeDbMs = 0;
   if (alert.routeId) {
+    const routeDbStartMs = nowMs();
     const route = await db.collection('routes').findOne({ routeId: alert.routeId });
+    routeDbMs = nowMs() - routeDbStartMs;
     if (route) routeGeometry = route.geometry;
   }
 
+  const contextTotalMs = nowMs() - contextStartMs;
   res.json({
     alert,
     trail,
     routeGeometry,
-    explanation: getAlertExplanation(alert, trail)
+    explanation: getAlertExplanation(alert, trail),
+    timing: {
+      totalMs: contextTotalMs,
+      alertDbMs,
+      trailDbMs,
+      routeDbMs,
+      appMs: Math.max(contextTotalMs - alertDbMs - trailDbMs - routeDbMs, 0)
+    }
   });
 });
 

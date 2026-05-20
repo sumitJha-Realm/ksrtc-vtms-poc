@@ -1,16 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
+const { recordOperationTiming } = require('../services/timingMetrics');
+
+const SEED_OPERATION_LOG_MIN_MS = Number(process.env.SEED_OPERATION_LOG_MIN_MS || 500);
+const SIM_TICK_LOG_MIN_MS = Number(process.env.SIM_TICK_LOG_MIN_MS || 100);
+
+function nowMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+async function timedDb(stats, op) {
+  const start = nowMs();
+  const result = await op();
+  stats.dbMs += (nowMs() - start);
+  return result;
+}
 
 // POST /api/admin/seed-demo — Generate historical GPS + alerts data
 router.post('/seed-demo', async (req, res) => {
   const db = getDB();
   const hours = parseInt(req.query.hours) || 6;
+  const opStartMs = nowMs();
+  const stats = { dbMs: 0 };
 
   try {
 
-    const vehicles = await db.collection('vehicles').find({}).toArray();
-    const routes = await db.collection('routes').find({}).toArray();
+    const vehicles = await timedDb(stats, () => db.collection('vehicles').find({}).toArray());
+    const routes = await timedDb(stats, () => db.collection('routes').find({}).toArray());
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
 
@@ -73,7 +90,7 @@ router.post('/seed-demo', async (req, res) => {
         });
 
         if (batch.length >= batchSize) {
-          await db.collection('gps_events').insertMany(batch);
+          await timedDb(stats, () => db.collection('gps_events').insertMany(batch));
           totalGPS += batch.length;
           batch = [];
         }
@@ -105,7 +122,7 @@ router.post('/seed-demo', async (req, res) => {
 
       // Set final vehicle_current_state
       const lastCoord = coords[segmentIndex];
-      await db.collection('vehicle_current_state').updateOne(
+      await timedDb(stats, () => db.collection('vehicle_current_state').updateOne(
         { vehicleId: vehicle.vehicleId },
         {
           $set: {
@@ -119,12 +136,12 @@ router.post('/seed-demo', async (req, res) => {
           }
         },
         { upsert: true }
-      );
+      ));
     }
 
     // Flush remaining GPS batch
     if (batch.length > 0) {
-      await db.collection('gps_events').insertMany(batch);
+      await timedDb(stats, () => db.collection('gps_events').insertMany(batch));
       totalGPS += batch.length;
     }
 
@@ -158,7 +175,13 @@ router.post('/seed-demo', async (req, res) => {
         });
     }
 
-    await db.collection('alerts').insertMany(alerts);
+    await timedDb(stats, () => db.collection('alerts').insertMany(alerts));
+
+    const totalMs = nowMs() - opStartMs;
+    if (totalMs >= SEED_OPERATION_LOG_MIN_MS) {
+      console.log(`[OP-TIMING] seed-demo total=${totalMs}ms db=${stats.dbMs}ms app=${Math.max(totalMs - stats.dbMs, 0)}ms gps=${totalGPS} alerts=${alerts.length}`);
+    }
+    recordOperationTiming('seed-demo', totalMs, stats.dbMs, { hours, gpsEvents: totalGPS, alerts: alerts.length });
 
     res.json({
       success: true,
@@ -166,7 +189,12 @@ router.post('/seed-demo', async (req, res) => {
       hours,
       gpsEvents: totalGPS,
       alerts: alerts.length,
-      vehicles: vehicles.length
+      vehicles: vehicles.length,
+      timing: {
+        totalMs,
+        dbMs: stats.dbMs,
+        appMs: Math.max(totalMs - stats.dbMs, 0)
+      }
     });
   } catch (err) {
     console.error('Seed error:', err);
@@ -227,6 +255,8 @@ router.post('/simulator/start', async (req, res) => {
       const db = getDB();
       const batch = [];
       const now = new Date();
+      const tickStartMs = nowMs();
+      const tickStats = { dbMs: 0 };
 
       for (const [vehicleId, state] of Object.entries(simulatorStates)) {
         const coords = state.route.geometry.coordinates;
@@ -268,7 +298,7 @@ router.post('/simulator/start', async (req, res) => {
         });
 
         // Update vehicle_current_state
-        await db.collection('vehicle_current_state').updateOne(
+        await timedDb(tickStats, () => db.collection('vehicle_current_state').updateOne(
           { vehicleId },
           { $set: {
             location: { type: 'Point', coordinates: [lon + noiseLon, lat + noiseLat] },
@@ -279,7 +309,7 @@ router.post('/simulator/start', async (req, res) => {
             lastUpdated: now
           }},
           { upsert: true }
-        );
+        ));
 
         // Advance position
         state.progress += 0.02 + Math.random() * 0.03;
@@ -299,10 +329,16 @@ router.post('/simulator/start', async (req, res) => {
       }
 
       if (batch.length > 0) {
-        await db.collection('gps_events').insertMany(batch);
+        await timedDb(tickStats, () => db.collection('gps_events').insertMany(batch));
       }
       simulatorStats.ticks++;
       simulatorStats.totalEvents += batch.length;
+
+      const tickTotalMs = nowMs() - tickStartMs;
+      if (tickTotalMs >= SIM_TICK_LOG_MIN_MS) {
+        console.log(`[OP-TIMING] simulator-tick total=${tickTotalMs}ms db=${tickStats.dbMs}ms app=${Math.max(tickTotalMs - tickStats.dbMs, 0)}ms events=${batch.length}`);
+      }
+      recordOperationTiming('simulator-tick', tickTotalMs, tickStats.dbMs, { events: batch.length });
     } catch (err) {
       console.error('Simulator tick error:', err.message);
     }

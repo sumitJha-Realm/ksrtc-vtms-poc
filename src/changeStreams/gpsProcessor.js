@@ -1,5 +1,6 @@
 const { getDB, getClient } = require('../config/database');
 const turf = require('@turf/turf');
+const { recordOperationTiming } = require('../services/timingMetrics');
 
 let geofenceCache = [];
 let routeCache = {};  // routeId -> turf LineString
@@ -12,6 +13,11 @@ const ETA_COLLECTION = 'trip_eta_predictions';
 const ETA_DWELL_SECONDS = Number(process.env.ETA_DWELL_SECONDS || 20);
 const ETA_MIN_MOVING_SPEED_KMH = Number(process.env.ETA_MIN_MOVING_SPEED_KMH || 12);
 const ETA_MAX_DOWNSTREAM_STOPS = Number(process.env.ETA_MAX_DOWNSTREAM_STOPS || 8);
+const PROCESS_EVENT_LOG_MIN_MS = Number(process.env.PROCESS_EVENT_LOG_MIN_MS || 50);
+
+function nowMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
 
 async function loadGeofences(db) {
   geofenceCache = await db.collection('geofences').find({}).toArray();
@@ -172,11 +178,23 @@ function checkGeofences(event) {
 }
 
 async function processGPSEvent(db, event) {
+  const opStartMs = nowMs();
+  let dbMs = 0;
+  const timings = { sections: {} };
+
+  const timedDb = async (op) => {
+    const start = nowMs();
+    const result = await op();
+    dbMs += (nowMs() - start);
+    return result;
+  };
+
   const vehicleId = event.metadata.vehicleId;
 
   // 1. Overspeed check
+  const overspeedStartMs = nowMs();
   if (event.speed > 70) {
-    await db.collection('alerts').insertOne({
+    await timedDb(() => db.collection('alerts').insertOne({
       alertId: `ALT-OS-${Date.now()}-${vehicleId}`,
       vehicleId,
       depotId: event.metadata.depotId,
@@ -186,16 +204,19 @@ async function processGPSEvent(db, event) {
       status: 'active',
       timestamp: event.timestamp,
       location: event.location,
-      details: { speed: event.speed, limit: 70 }
-    });
+      details: { speed: event.speed, limit: 70 },
+      processingTimingMs: Date.now()
+    }));
   }
+  timings.sections.overspeed = nowMs() - overspeedStartMs;
 
   // 2. Geofence check (in-memory)
+  const geofenceStartMs = nowMs();
   const fencesInside = checkGeofences(event);
   // Check if vehicle entered a speed-restricted zone
   for (const fence of fencesInside) {
     if (fence.type === 'speed_restriction' && fence.speedLimit && event.speed > fence.speedLimit) {
-      await db.collection('alerts').insertOne({
+      await timedDb(() => db.collection('alerts').insertOne({
         alertId: `ALT-GF-${Date.now()}-${vehicleId}`,
         vehicleId,
         depotId: event.metadata.depotId,
@@ -204,15 +225,18 @@ async function processGPSEvent(db, event) {
         status: 'active',
         timestamp: event.timestamp,
         location: event.location,
-        details: { zone: fence.name, speed: event.speed, limit: fence.speedLimit }
-      });
+        details: { zone: fence.name, speed: event.speed, limit: fence.speedLimit },
+        processingTimingMs: Date.now()
+      }));
     }
   }
+  timings.sections.geofence = nowMs() - geofenceStartMs;
 
   // 3. Route corridor deviation check (in-memory, 100m threshold)
+  const deviationStartMs = nowMs();
   const deviationDistance = checkRouteDeviation(event);
   if (deviationDistance) {
-    await db.collection('alerts').insertOne({
+    await timedDb(() => db.collection('alerts').insertOne({
       alertId: `ALT-RD-${Date.now()}-${vehicleId}`,
       vehicleId,
       depotId: event.metadata.depotId,
@@ -222,24 +246,55 @@ async function processGPSEvent(db, event) {
       status: 'active',
       timestamp: event.timestamp,
       location: event.location,
-      details: { distance: `${deviationDistance}m from corridor`, threshold: `${ROUTE_DEVIATION_THRESHOLD_METERS}m` }
-    });
+      details: { distance: `${deviationDistance}m from corridor`, threshold: `${ROUTE_DEVIATION_THRESHOLD_METERS}m` },
+      processingTimingMs: Date.now()
+    }));
   }
+  timings.sections.deviation = nowMs() - deviationStartMs;
 
   // 4. ETA/ETD cascade for downstream stops (real-time, per ping)
+  const etaStartMs = nowMs();
+  const etaAppStartMs = nowMs();
   const etaResult = estimateDownstreamEta(event);
-  await upsertEtaPrediction(db, event, etaResult);
+  timings.eta_app_ms = nowMs() - etaAppStartMs;
+  
+  const etaDbStartMs = nowMs();
+  await timedDb(() => upsertEtaPrediction(db, event, etaResult));
+  timings.eta_db_ms = nowMs() - etaDbStartMs;
+  timings.sections.eta = nowMs() - etaStartMs;
+
+  const totalMs = nowMs() - opStartMs;
+  timings.total_ms = totalMs;
+  timings.total_db_ms = dbMs;
+  timings.total_app_ms = Math.max(totalMs - dbMs, 0);
+  
+  recordOperationTiming('process-gps-event', totalMs, dbMs, { vehicleId, timings });
+  if (totalMs >= PROCESS_EVENT_LOG_MIN_MS) {
+    const sectionStr = Object.entries(timings.sections)
+      .map(([name, ms]) => `${name}=${ms}ms`)
+      .join(' ');
+    console.log(`[OP-TIMING] process-gps-event vehicle=${vehicleId} total=${totalMs}ms db=${dbMs}ms app=${Math.max(totalMs - dbMs, 0)}ms eta_app=${timings.eta_app_ms}ms eta_db=${timings.eta_db_ms}ms sections=(${sectionStr})`);
+  }
 }
 
 async function startChangeStreamProcessor() {
   const db = getDB();
 
+  const safeRefreshCaches = async () => {
+    try {
+      await loadGeofences(db);
+      await loadRoutes(db);
+    } catch (err) {
+      console.error('Cache refresh failed (will retry):', err.message);
+    }
+  };
+
   // Load geofences and routes into memory
-  await loadGeofences(db);
-  await loadRoutes(db);
+  await safeRefreshCaches();
   // Refresh every 5 minutes
-  setInterval(() => loadGeofences(db), 5 * 60 * 1000);
-  setInterval(() => loadRoutes(db), 5 * 60 * 1000);
+  setInterval(() => {
+    safeRefreshCaches();
+  }, 5 * 60 * 1000);
 
   console.log('📡 Starting Change Stream processor on vehicle_current_state...');
 
