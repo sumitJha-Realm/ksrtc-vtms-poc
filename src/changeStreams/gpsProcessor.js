@@ -2,11 +2,40 @@ const { getDB, getClient } = require('../config/database');
 const turf = require('@turf/turf');
 
 let geofenceCache = [];
+let routeCache = {};  // routeId -> turf LineString
 let changeStream = null;
+
+const ROUTE_DEVIATION_THRESHOLD_METERS = 100;
 
 async function loadGeofences(db) {
   geofenceCache = await db.collection('geofences').find({}).toArray();
   console.log(`   Loaded ${geofenceCache.length} geofences into memory cache`);
+}
+
+async function loadRoutes(db) {
+  const routes = await db.collection('routes').find({}).toArray();
+  routeCache = {};
+  for (const route of routes) {
+    if (route.geometry && route.geometry.coordinates && route.geometry.coordinates.length >= 2) {
+      routeCache[route.routeId] = turf.lineString(route.geometry.coordinates);
+    }
+  }
+  console.log(`   Loaded ${Object.keys(routeCache).length} routes into memory cache`);
+}
+
+function checkRouteDeviation(event) {
+  const routeId = event.metadata.routeId;
+  if (!routeId || !routeCache[routeId]) return null;
+
+  const busPoint = turf.point(event.location.coordinates);
+  const routeLine = routeCache[routeId];
+  const nearest = turf.nearestPointOnLine(routeLine, busPoint, { units: 'meters' });
+  const distanceFromRoute = nearest.properties.dist;
+
+  if (distanceFromRoute > ROUTE_DEVIATION_THRESHOLD_METERS) {
+    return Math.round(distanceFromRoute);
+  }
+  return null;
 }
 
 function checkGeofences(event) {
@@ -60,15 +89,34 @@ async function processGPSEvent(db, event) {
       });
     }
   }
+
+  // 3. Route corridor deviation check (in-memory, 100m threshold)
+  const deviationDistance = checkRouteDeviation(event);
+  if (deviationDistance) {
+    await db.collection('alerts').insertOne({
+      alertId: `ALT-RD-${Date.now()}-${vehicleId}`,
+      vehicleId,
+      depotId: event.metadata.depotId,
+      routeId: event.metadata.routeId,
+      type: 'route_deviation',
+      severity: deviationDistance > 300 ? 'critical' : 'medium',
+      status: 'active',
+      timestamp: event.timestamp,
+      location: event.location,
+      details: { distance: `${deviationDistance}m from corridor`, threshold: `${ROUTE_DEVIATION_THRESHOLD_METERS}m` }
+    });
+  }
 }
 
 async function startChangeStreamProcessor() {
   const db = getDB();
 
-  // Load geofences into memory
+  // Load geofences and routes into memory
   await loadGeofences(db);
+  await loadRoutes(db);
   // Refresh every 5 minutes
   setInterval(() => loadGeofences(db), 5 * 60 * 1000);
+  setInterval(() => loadRoutes(db), 5 * 60 * 1000);
 
   console.log('📡 Starting Change Stream processor on vehicle_current_state...');
 

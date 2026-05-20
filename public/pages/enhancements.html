@@ -32,6 +32,7 @@
     .tag.stream { border-color: #26a69a; color: #26a69a; }
     .tag.archive { border-color: #78909c; color: #78909c; }
     .tag.federation { border-color: #ef5350; color: #ef5350; }
+    .tag.worker { border-color: #66bb6a; color: #66bb6a; }
     .comparison-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0.75rem 0; }
     .comparison-table th { background: #0f1923; color: #4fc3f7; padding: 0.5rem; text-align: left; border-bottom: 1px solid #2a3a4a; }
     .comparison-table td { padding: 0.5rem; color: #b0bec5; border-bottom: 1px solid #1a2332; }
@@ -60,7 +61,7 @@
 
   <div class="enhance-container">
     <h2 style="color:#4fc3f7;">Future Architecture Enhancements</h2>
-    <p style="color:#78909c;font-size:0.88rem;margin-bottom:0.5rem;">How adding Kafka, Atlas Triggers, Stream Processing, Online Archive, and Data Federation elevates this PoC to a production-grade system handling 8,000+ buses.</p>
+    <p style="color:#78909c;font-size:0.88rem;margin-bottom:0.5rem;">How adding Kafka, Stateful Worker Nodes, Atlas Triggers, Stream Processing, Online Archive, and Data Federation elevates this PoC to a production-grade system handling 8,000+ buses.</p>
 
     <!-- FULL ENHANCED ARCHITECTURE DIAGRAM -->
     <div class="full-arch-diagram">
@@ -69,41 +70,55 @@
                          │                  ENHANCED KSRTC VTMS ARCHITECTURE           │
                          └─────────────────────────────────────────────────────────────┘
 
-  ┌──────────────┐      ┌──────────────────┐      ┌─────────────────────────────────────────────┐
-  │  GPS Devices │─────▶│  <span class="highlight">Apache Kafka</span>    │─────▶│  MongoDB Atlas                              │
-  │  8,000 buses │      │  (Ingest Buffer) │      │                                             │
-  │  10s interval│      │                  │      │  ┌──────────────────────────────────────┐   │
-  └──────────────┘      │  • 80K msg/sec   │      │  │ <span class="highlight">Atlas Stream Processing</span>              │   │
-                        │  • Partitioned   │      │  │ • Real-time aggregation               │   │
-                        │  • Replay-able   │      │  │ • Tumbling/Sliding windows            │   │
-                        └──────────────────┘      │  │ • Emit alerts directly                │   │
-                                                  │  └──────────────┬───────────────────────┘   │
-                                                  │                 │                           │
-                         ┌────────────────────────┼─────────────────┼───────────────────┐       │
-                         │                        ▼                 ▼                   │       │
-                         │  ┌─────────────┐  ┌──────────┐  ┌──────────────────┐        │       │
-                         │  │ gps_events  │  │  alerts  │  │ vehicle_current  │        │       │
-                         │  │ (TimeSeries)│  │          │  │ _state           │        │       │
-                         │  └──────┬──────┘  └──────────┘  └────────┬─────────┘        │       │
-                         │         │                                │                  │       │
-                         │         ▼                                ▼                  │       │
-                         │  ┌─────────────┐                 ┌──────────────┐           │       │
-                         │  │<span class="highlight">Online Archive</span>│                 │<span class="highlight">Atlas Triggers</span> │           │       │
-                         │  │ (>90 days)  │                 │ • Notifications│           │       │
-                         │  │ Auto-tiered │                 │ • Escalations  │           │       │
-                         │  └──────┬──────┘                 │ • Integrations │           │       │
-                         │         │                        └──────────────┘           │       │
-                         │         ▼                                                   │       │
-                         │  ┌──────────────────────────────────────┐                   │       │
-                         │  │ <span class="highlight">Atlas Data Federation</span>                   │                   │       │
-                         │  │ • Query across hot + archive + S3    │                   │       │
-                         │  │ • Unified view for yearly reports    │                   │       │
-                         │  └──────────────────────────────────────┘                   │       │
-                         └─────────────────────────────────────────────────────────────┘       │
-                                                                                               │
-                         ┌─────────────────────────────────────────────────────────────────────┘
-                         │
-                         ▼
+  ┌──────────────┐      ┌──────────────────┐
+  │  GPS Devices │─────▶│  <span class="highlight">Apache Kafka</span>    │
+  │  8,000 buses │      │  (Ingest Buffer) │
+  │  10s interval│      │  • 80K msg/sec   │
+  └──────────────┘      │  • 16 partitions │
+                        │  • 7-day retain  │
+                        └────────┬─────────┘
+                                 │
+              ┌──────────────────┼──────────────────────────────┐
+              │                  │                              │
+              ▼                  ▼                              ▼
+  ┌───────────────────┐  ┌───────────────────────────┐  ┌─────────────────────────────────┐
+  │<span class="highlight">Atlas Stream Proc.</span>  │  │  <span class="highlight">Stateful Worker Nodes</span>    │  │  MongoDB Atlas (Write Path)      │
+  │ (SP30 — MQL only) │  │  (Node.js × 2 instances)  │  │  • gps_events (Time Series)     │
+  │                   │  │                           │  │  • vehicle_current_state         │
+  │ • Tumbling: avg   │  │  • In-memory state (4 MB) │  │                                 │
+  │   speed per 1-min │  │  • Route deviation (turf) │  └─────────────────────────────────┘
+  │ • Simple threshold│  │  • Geofence checks        │                │
+  │   alerts          │  │  • Sustained overspeed    │                │
+  └────────┬──────────┘  │  • Unauthorized stop      │                │
+           │             │  • Schedule adherence      │                │
+           │             └─────────────┬─────────────┘                │
+           │                           │                              │
+           └───────────────────────────┼──────────────────────────────┘
+                                       │
+                                       ▼
+                         ┌─────────────────────────────────────────────────────────────┐
+                         │                     MongoDB Atlas Cluster                    │
+                         │                                                             │
+                         │  ┌─────────────┐  ┌──────────┐  ┌──────────────────┐       │
+                         │  │ gps_events  │  │  alerts  │  │ vehicle_current  │       │
+                         │  │ (TimeSeries)│  │          │  │ _state           │       │
+                         │  └──────┬──────┘  └─────┬────┘  └──────────────────┘       │
+                         │         │               │                                  │
+                         │         ▼               ▼                                  │
+                         │  ┌─────────────┐  ┌──────────────┐                         │
+                         │  │<span class="highlight">Online Archive</span>│  │<span class="highlight">Atlas Triggers</span> │                         │
+                         │  │ (>90 days)  │  │ • SMS/Push   │                         │
+                         │  │ Auto-tiered │  │ • Escalation │                         │
+                         │  └──────┬──────┘  │ • Webhooks   │                         │
+                         │         │         └──────────────┘                         │
+                         │         ▼                                                  │
+                         │  ┌──────────────────────────────────────┐                  │
+                         │  │ <span class="highlight">Atlas Data Federation</span>                   │                  │
+                         │  │ • Query across hot + archive + S3    │                  │
+                         │  └──────────────────────────────────────┘                  │
+                         └─────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
               ┌──────────────────────────────────────────┐
               │        Application Layer                  │
               │  Dashboard │ Playback │ Alerts │ Reports  │
@@ -164,10 +179,131 @@ replay capability, back-pressure</pre>
         </table>
       </div>
 
-      <!-- 2. ATLAS TRIGGERS -->
+      <!-- 2. STATEFUL WORKER NODES -->
       <div class="enhance-section">
-        <h3><span class="tag trigger">Triggers</span> MongoDB Atlas Triggers — Serverless Event Processing</h3>
-        <p class="subtitle">Replace application-level Change Streams with managed, auto-scaling serverless functions</p>
+        <h3><span class="tag worker">Workers</span> Stateful Worker Nodes — Detection Engine</h3>
+        <p class="subtitle">Long-running Node.js containers consuming from Kafka, performing all complex detections with in-memory state and turf.js geometry</p>
+
+        <div class="arch-before-after">
+          <div class="arch-box">
+            <h5>Current (PoC)</h5>
+            <pre>
+changeStream.watch() in Express server
+  └── Simple threshold checks only
+  └── No route geometry
+  └── No sustained-state tracking
+  └── Coupled to web server lifecycle</pre>
+          </div>
+          <div class="arrow-col">→</div>
+          <div class="arch-box after">
+            <h5>With Worker Nodes</h5>
+            <pre>
+Kafka Consumer (2 instances, partitioned)
+  └── In-memory state per vehicle (~4 MB)
+  └── turf.js for route deviation/geofence
+  └── Circular buffers for sustained checks
+  └── Independent of web server</pre>
+          </div>
+        </div>
+
+        <ul class="benefit-list">
+          <li><strong>In-Memory State:</strong> Each vehicle's derived state (~500 bytes) lives in a JS Map — prevSpeed, timers, speed buffers — zero DB reads per ping</li>
+          <li><strong>Geometry Detections:</strong> turf.js (nearestPointOnLine, booleanPointInPolygon) for route deviation (100m threshold) and geofence checks — impossible in Stream Processing or Triggers</li>
+          <li><strong>Partitioned Processing:</strong> Kafka partitions by vehicleId → each vehicle always goes to the same worker → no race conditions, no distributed state</li>
+          <li><strong>Conditional Checks:</strong> Only run relevant detections per ping (speed checks if moving, stop detection if stationary) — 5× less CPU than checking everything every time</li>
+          <li><strong>State Recovery:</strong> On restart, workers replay last 60 seconds from Kafka to rebuild in-memory state — no external state store needed</li>
+          <li><strong>Horizontal Scaling:</strong> Add more worker instances as fleet grows — Kafka rebalances partitions automatically</li>
+        </ul>
+
+        <div class="pipeline-diagram">
+          <pre>
+// Worker Node — Stateful Detection Engine (simplified)
+const vehicleState = new Map(); // 8,000 entries × ~500 bytes = ~4 MB
+
+async function processGPSEvent(event) {
+  const { vehicleId, speed, location, timestamp, routeId } = event;
+  let state = vehicleState.get(vehicleId) || initState(vehicleId);
+
+  // ─── HARSH BRAKING (compare with previous speed) ──────────────────
+  if (state.prevSpeed !== null) {
+    const decel = (state.prevSpeed - speed) / 3.6; // km/h → m/s
+    const dt = (timestamp - state.prevTimestamp) / 1000;
+    if (dt > 0 && decel / dt > 4.0) {  // > 4 m/s² deceleration
+      await insertAlert('harsh_braking', vehicleId, { decel: decel/dt, speed });
+    }
+  }
+
+  // ─── ROUTE DEVIATION (turf.js — geometry check) ───────────────────
+  if (routeId && speed > 5) {  // Only check if moving & on a route
+    const routeLine = routeCache.get(routeId);
+    if (routeLine) {
+      const point = turf.point([location.coordinates[0], location.coordinates[1]]);
+      const nearest = turf.nearestPointOnLine(routeLine, point);
+      if (nearest.properties.dist > 0.1) {  // > 100 meters off route
+        await insertAlert('route_deviation', vehicleId, { distance: nearest.properties.dist * 1000 });
+      }
+    }
+  }
+
+  // ─── UNAUTHORIZED STOP (timer-based — no buffer needed) ───────────
+  if (speed < 3) {
+    if (!state.stationarySince) state.stationarySince = timestamp;
+    else if (timestamp - state.stationarySince > 180000 && !state.stopAlertSent) {
+      await insertAlert('unauthorized_stop', vehicleId, { duration: timestamp - state.stationarySince });
+      state.stopAlertSent = true;
+    }
+  } else {
+    state.stationarySince = null;
+    state.stopAlertSent = false;
+  }
+
+  // ─── SUSTAINED OVERSPEED (circular buffer — last 3 speeds) ────────
+  state.speedBuffer.push(speed);
+  if (state.speedBuffer.length > 3) state.speedBuffer.shift();
+  const avgSpeed = state.speedBuffer.reduce((a, b) => a + b, 0) / state.speedBuffer.length;
+  if (avgSpeed > 70 && state.speedBuffer.length === 3) {
+    await insertAlert('sustained_overspeed', vehicleId, { avgSpeed, window: '30s' });
+  }
+
+  // ─── UPDATE STATE ─────────────────────────────────────────────────
+  state.prevSpeed = speed;
+  state.prevTimestamp = timestamp;
+  state.prevLocation = location;
+  vehicleState.set(vehicleId, state);
+}</pre>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric"><div class="val">~4 MB</div><div class="label">Memory (8K buses)</div></div>
+          <div class="metric"><div class="val">0</div><div class="label">DB Reads per Ping</div></div>
+          <div class="metric"><div class="val">&lt;1ms</div><div class="label">Detection Latency</div></div>
+          <div class="metric"><div class="val">2</div><div class="label">Instances (HA)</div></div>
+        </div>
+
+        <table class="comparison-table">
+          <tr><th>Detection</th><th>Why Workers (not Triggers/SP)</th><th>State Needed</th></tr>
+          <tr><td>Route Deviation</td><td class="enhanced">Requires turf.js — no geometry in SP or Triggers</td><td>Route cache (2 MB)</td></tr>
+          <tr><td>Geofence Breach</td><td class="enhanced">booleanPointInPolygon requires turf.js</td><td>Polygon cache (200 KB)</td></tr>
+          <tr><td>Sustained Overspeed</td><td class="enhanced">Needs 30s history per vehicle — in-memory buffer</td><td>3 speeds per vehicle</td></tr>
+          <tr><td>Unauthorized Stop</td><td class="enhanced">Timer state — can't persist timers in SP</td><td>1 timestamp per vehicle</td></tr>
+          <tr><td>Harsh Braking</td><td class="enhanced">Needs previous speed — 0ms memory access vs 5ms DB read</td><td>1 number per vehicle</td></tr>
+          <tr><td>Schedule Adherence</td><td class="enhanced">Needs visited stops set + schedule lookup</td><td>Set + 1 timestamp</td></tr>
+        </table>
+
+        <table class="comparison-table" style="margin-top: 1rem;">
+          <tr><th>Aspect</th><th>Workers</th><th>Atlas Triggers</th><th>Stream Processing</th></tr>
+          <tr><td>turf.js geometry</td><td class="enhanced">✓ Full npm ecosystem</td><td class="current">✗ Limited runtime</td><td class="current">✗ MQL only</td></tr>
+          <tr><td>Stateful (per vehicle)</td><td class="enhanced">✓ In-memory Map</td><td class="current">✗ Stateless invocation</td><td class="current">~ Window state only</td></tr>
+          <tr><td>Cost (69M pings/day)</td><td class="enhanced">~$100/mo (2 containers)</td><td class="current">~$400/mo (per-exec)</td><td class="enhanced">~$180/mo (SP30)</td></tr>
+          <tr><td>Latency</td><td class="enhanced">&lt;1ms</td><td class="current">50–200ms</td><td class="enhanced">~100ms</td></tr>
+          <tr><td>Race conditions</td><td class="enhanced">None (partitioned)</td><td class="current">Possible (concurrent)</td><td class="enhanced">None</td></tr>
+        </table>
+      </div>
+
+      <!-- 3. ATLAS TRIGGERS (Notifications only — NOT for detection) -->
+      <div class="enhance-section">
+        <h3><span class="tag trigger">Triggers</span> Atlas Triggers — Notification Dispatch (Not Detection)</h3>
+        <p class="subtitle">Stateless, serverless functions that fire AFTER workers insert alerts — for SMS, push, and webhook delivery only</p>
 
         <div class="arch-before-after">
           <div class="arch-box">
@@ -234,7 +370,7 @@ exports = async function(changeEvent) {
         </table>
       </div>
 
-      <!-- 3. STREAM PROCESSING -->
+      <!-- 4. STREAM PROCESSING -->
       <div class="enhance-section">
         <h3><span class="tag stream">Stream Processing</span> Atlas Stream Processing — Real-Time Analytics</h3>
         <p class="subtitle">Process, aggregate, and transform streaming GPS data using MongoDB's native stream processor with MQL syntax</p>
@@ -323,7 +459,7 @@ no heavy post-hoc queries needed</pre>
         </div>
       </div>
 
-      <!-- 4. ONLINE ARCHIVE -->
+      <!-- 5. ONLINE ARCHIVE -->
       <div class="enhance-section">
         <h3><span class="tag archive">Archive</span> Online Archive — Automated Data Tiering</h3>
         <p class="subtitle">Automatically move old GPS data to low-cost storage while keeping it queryable</p>
@@ -402,7 +538,7 @@ db.gps_events.find({
         </div>
       </div>
 
-      <!-- 5. DATA FEDERATION -->
+      <!-- 6. DATA FEDERATION -->
       <div class="enhance-section">
         <h3><span class="tag federation">Federation</span> Atlas Data Federation — Unified Cross-Source Queries</h3>
         <p class="subtitle">Query across Atlas clusters, Online Archive, S3 buckets, and HTTP sources with a single MQL query</p>
@@ -494,39 +630,53 @@ db.all_gps_events.aggregate([
 
         <div class="pipeline-diagram">
           <pre>
-DATA FLOW (Enhanced):
+DATA FLOW (Enhanced Production):
 
 GPS Device (8,000 buses, 10s interval)
     │
     ▼
-<span style="color:#ff9800;">Kafka</span> (buffer, 80K msg/s, 7-day retention, replay)
+<span style="color:#ff9800;">Kafka</span> (buffer, 80K msg/s, 16 partitions, 7-day retention)
     │
-    ├──▶ <span style="color:#26a69a;">Atlas Stream Processor</span> (real-time windowed analytics)
-    │       ├── Tumbling: avg speed per 1-min bucket → pre_aggregated collection
-    │       ├── Sliding: harsh braking detection → alerts collection
-    │       └── Geofence: continuous boundary check → geofence_alerts
+    ├──▶ <span style="color:#26a69a;">Atlas Stream Processor</span> (SP30 — simple windowed MQL analytics)
+    │       ├── Tumbling: avg speed per 1-min bucket → pre_aggregated
+    │       └── Simple threshold alerts (overspeed > 80 km/h)
+    │
+    ├──▶ <span style="color:#66bb6a;">Stateful Worker Nodes</span> (Node.js × 2 — ALL complex detection)
+    │       ├── In-memory state: prevSpeed, timers, buffers (~4 MB total)
+    │       ├── turf.js: route deviation, geofence, ETA
+    │       ├── Sustained overspeed, unauthorized stop, harsh braking
+    │       ├── Schedule adherence, breakdown inference
+    │       └── Writes: alerts + vehicle_current_state → MongoDB
     │
     ├──▶ MongoDB Atlas (write raw GPS to gps_events Time Series)
     │       │
-    │       ├── <span style="color:#ab47bc;">Atlas Trigger</span> (on alert insert)
+    │       ├── <span style="color:#ab47bc;">Atlas Trigger</span> (on alert insert — notification ONLY)
     │       │     ├── SMS notification to depot manager
     │       │     ├── Push notification to driver app
     │       │     └── Webhook to KSRTC command center
     │       │
     │       └── <span style="color:#78909c;">Online Archive</span> (auto-tier >90 days to object storage)
     │
-    └──▶ <span style="color:#ef5350;">Data Federation</span> (yearly reports querying hot + archive + S3)</pre>
+    └──▶ <span style="color:#ef5350;">Data Federation</span> (yearly reports querying hot + archive + S3)
+
+────────────────────────────────────────────────────────────────────────────
+INDUSTRY VALIDATION: This is the same pattern used by
+Toyota Connected (9M vehicles), Samsara (1M+), Geotab (4M+).
+Device → Broker → Stateful Compute → Database → Notify</pre>
         </div>
 
         <table class="comparison-table">
           <tr><th>Metric</th><th>Current PoC</th><th>Enhanced Production</th></tr>
           <tr><td>Ingestion capacity</td><td class="current">~5K GPS/sec</td><td class="enhanced">80K+ GPS/sec</td></tr>
           <tr><td>Data loss risk</td><td class="current">Possible on app/DB failure</td><td class="enhanced">Zero — Kafka buffers</td></tr>
-          <tr><td>Alert latency</td><td class="current">~5s (Change Stream)</td><td class="enhanced">&lt;100ms (Stream Processor)</td></tr>
-          <tr><td>Notification delivery</td><td class="current">None (manual check)</td><td class="enhanced">Auto SMS/Push (Triggers)</td></tr>
-          <tr><td>Storage cost (5 years)</td><td class="current">~$200/month (all hot)</td><td class="enhanced">~$25/month (tiered)</td></tr>
+          <tr><td>Alert latency</td><td class="current">~5s (Change Stream)</td><td class="enhanced">&lt;1ms (Worker in-memory)</td></tr>
+          <tr><td>Detection capability</td><td class="current">Simple thresholds only</td><td class="enhanced">Geometry + stateful + windowed (Workers)</td></tr>
+          <tr><td>Notification delivery</td><td class="current">None (manual check)</td><td class="enhanced">Auto SMS/Push (Triggers on alert insert)</td></tr>
+          <tr><td>Route deviation detection</td><td class="current">Not implemented</td><td class="enhanced">turf.js in workers — 100m threshold</td></tr>
+          <tr><td>Storage cost (5 years)</td><td class="current">~$200/month (all hot)</td><td class="enhanced">~$25/month (tiered via Archive)</td></tr>
           <tr><td>Historical queries</td><td class="current">Only recent data</td><td class="enhanced">Full 5-year queryable (Federation)</td></tr>
-          <tr><td>Operational overhead</td><td class="current">Manage server process</td><td class="enhanced">Fully managed (serverless)</td></tr>
+          <tr><td>Worker compute cost</td><td class="current">Coupled to web server</td><td class="enhanced">2 containers × $50 = $100/month</td></tr>
+          <tr><td>Operational overhead</td><td class="current">Manage server process</td><td class="enhanced">Managed containers + serverless Atlas</td></tr>
         </table>
       </div>
 
