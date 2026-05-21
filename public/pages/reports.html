@@ -47,9 +47,6 @@
     .report-filter-group select { background: #0f1923; border: 1px solid #2a3a4a; color: #cfd8dc; border-radius: 6px; padding: 0.5rem 0.65rem; min-width: 260px; }
     .report-filter-group input[type="checkbox"] { accent-color: #4fc3f7; }
     .filter-hint { color: #607d8b; font-size: 0.74rem; }
-    #reportTimingWrap details { border: 1px solid #1e3040; border-radius: 6px; background: #0f1923; }
-    #reportTimingWrap summary { cursor: pointer; color: #4fc3f7; font-weight: 600; padding: 0.55rem 0.7rem; }
-    #reportTiming { padding: 0.7rem; border-top: 1px solid #1e3040; }
   </style>
 </head>
 <body>
@@ -78,13 +75,6 @@
         <select id="reportVehicleFilter">
           <option value="">All Buses (Cumulative)</option>
         </select>
-      </div>
-      <div class="report-filter-group">
-        <label for="toggleReportTiming">Time breakdown</label>
-        <label style="display:flex;align-items:center;gap:0.5rem;color:#cfd8dc;font-size:0.8rem;">
-          <input type="checkbox" id="toggleReportTiming" />
-          Enable
-        </label>
       </div>
       <div class="filter-hint">Select one bus to compare performance vs cumulative all-bus metrics.</div>
     </div>
@@ -155,18 +145,6 @@
       <h3 id="reportTitle" style="color:#4fc3f7;margin-bottom:0.5rem;"></h3>
       <div id="reportNote" style="color:#80cbc4;font-size:0.82rem;margin-bottom:0.5rem;background:#1a2332;padding:0.5rem 0.75rem;border-radius:6px;display:none;"></div>
 
-      <!-- Timing Metrics Panel -->
-      <div id="reportTimingWrap" style="margin-bottom:0.75rem;display:none;">
-        <details id="reportTimingDetails">
-          <summary>⏱ Time Breakdown</summary>
-          <div id="reportTiming" style="color:#90a4ae;font-size:0.78rem;">
-            <div class="detail-row" style="display:flex;justify-content:space-between;margin-bottom:0.3rem;"><span>Query time</span><span id="timingQuery" style="color:#80cbc4;">0ms</span></div>
-            <div class="detail-row" style="display:flex;justify-content:space-between;"><span>Aggregation time</span><span id="timingAggregation" style="color:#ffcc80;font-weight:600;">0ms</span></div>
-            <div id="reportTimingSections" style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid #1e3040;"></div>
-          </div>
-        </details>
-      </div>
-
       <div class="report-detail-layout">
         <!-- LEFT: Table -->
         <div class="report-table-panel" id="reportTable"></div>
@@ -187,7 +165,6 @@
     let currentReportType = '';
     let currentReportData = null;
     let currentVehicleId = '';
-    let reportTimingEnabled = false;
 
     const REPORT_LOGIC = {
       'tracking-summary': {
@@ -593,21 +570,6 @@ db.alerts.find({ type: "panic" })
           runReport(currentReportType);
         }
       });
-
-      const timingToggle = document.getElementById('toggleReportTiming');
-      timingToggle.addEventListener('change', () => {
-        reportTimingEnabled = timingToggle.checked;
-        const timingWrap = document.getElementById('reportTimingWrap');
-        const timingDetails = document.getElementById('reportTimingDetails');
-        if (!reportTimingEnabled) {
-          timingWrap.style.display = 'none';
-          timingDetails.open = false;
-          return;
-        }
-        if (currentReportType) {
-          runReport(currentReportType);
-        }
-      });
     }
 
     async function runReport(type) {
@@ -618,13 +580,11 @@ db.alerts.find({ type: "panic" })
       const tableDiv = document.getElementById('reportTable');
       const noteDiv = document.getElementById('reportNote');
       const explDiv = document.getElementById('eventExplanation');
-      const timingWrap = document.getElementById('reportTimingWrap');
 
       outputDiv.style.display = 'block';
       titleDiv.textContent = 'Loading...';
       tableDiv.innerHTML = '';
       noteDiv.style.display = 'none';
-      timingWrap.style.display = 'none';
       explDiv.innerHTML = '<div class="no-map-msg">Select an event to see detection logic</div>';
 
       // Reset map
@@ -650,25 +610,6 @@ db.alerts.find({ type: "panic" })
         if (data.note) {
           noteDiv.style.display = 'block';
           noteDiv.innerHTML = `<strong>🔧 Detection Logic:</strong> ${data.note}`;
-        }
-
-        // Display timing metrics if available
-        if (data.timing && reportTimingEnabled) {
-          timingWrap.style.display = 'block';
-          const queryMs = data.timing.queryMs !== undefined ? data.timing.queryMs : 0;
-          const aggregationMs = data.timing.aggregationMs !== undefined ? data.timing.aggregationMs : 0;
-          document.getElementById('timingQuery').textContent = `${queryMs}ms`;
-          document.getElementById('timingAggregation').textContent = `${aggregationMs}ms`;
-          
-          // Show section timings if available
-          let sectionHtml = '';
-          if (data.timing.violationsDbMs !== undefined) {
-            sectionHtml += `<div style="display:flex;justify-content:space-between;font-size:0.75rem;"><span>Violations query</span><span style="color:#80cbc4;">${data.timing.violationsDbMs}ms</span></div>`;
-          }
-          if (data.timing.byVehicleDbMs !== undefined) {
-            sectionHtml += `<div style="display:flex;justify-content:space-between;font-size:0.75rem;"><span>By-vehicle aggregation</span><span style="color:#80cbc4;">${data.timing.byVehicleDbMs}ms</span></div>`;
-          }
-          document.getElementById('reportTimingSections').innerHTML = sectionHtml;
         }
 
         // Render based on report type
