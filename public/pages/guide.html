@@ -47,6 +47,15 @@
     <h2 style="color:#4fc3f7;margin-bottom:0.3rem;">How to Use This Application</h2>
     <p style="color:#78909c;font-size:0.88rem;margin-bottom:1.5rem;">Complete guide to all features of the KSRTC VTMS PoC. Each section explains what you can do on that page and the MongoDB features powering it.</p>
 
+    <div class="guide-section" style="margin-bottom:1rem;">
+      <h3>🔗 Access Links</h3>
+      <ol class="step-list">
+        <li><strong>Production (Vercel):</strong> <a href="https://ksrtc-vtms-poc.vercel.app" target="_blank" rel="noopener noreferrer" style="color:#80cbc4;">https://ksrtc-vtms-poc.vercel.app</a></li>
+        <li><strong>Local:</strong> <span class="nav-path">http://localhost:3000</span></li>
+        <li><strong>GitHub Repository:</strong> <a href="https://github.com/sumitJha-Realm/ksrtc-vtms-poc" target="_blank" rel="noopener noreferrer" style="color:#80cbc4;">https://github.com/sumitJha-Realm/ksrtc-vtms-poc</a></li>
+      </ol>
+    </div>
+
     <!-- TABLE OF CONTENTS -->
     <div class="toc">
       <h4>Quick Navigation</h4>
@@ -258,8 +267,9 @@
       <ol class="step-list">
         <li><strong>Start the server:</strong> <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">cd ksrtc-vtms-poc && node server.js</code> — starts Express on port 3000, connects to MongoDB Atlas, starts Change Stream processor</li>
         <li><strong>Open browser:</strong> Navigate to <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">http://localhost:3000</code></li>
-        <li><strong>Seed demo data:</strong> On the Live Dashboard, select a duration from the <strong>hours dropdown</strong> (2h, 4h, 6h, 12h, 24h, 36h, 48h) and click <strong>🌱 Seed Data</strong>. A confirmation prompt will show the estimated number of GPS events and alerts before proceeding. Data is appended — nothing is deleted.</li>
-        <li><strong>Start GPS simulator:</strong> Click the <strong>▶ Simulator</strong> button on the dashboard to start continuous live GPS generation (50 events every 10 seconds). Buses will move in real-time on the map. Click again (<strong>⏹ Simulator</strong>) to stop. No separate terminal needed.</li>
+        <li><strong>Seed historical data (recommended first):</strong> On the Live Dashboard, select a duration from the <strong>hours dropdown</strong> (2h, 4h, 6h, 12h, 24h, 36h, 48h) and click <strong>🌱 Seed Data</strong>. Confirm the prompt after reviewing estimated GPS events and alerts. This creates historical records for Reports, Alerts, and Playback. Data is appended — nothing is deleted.</li>
+        <li><strong>Run live simulator:</strong> Click <strong>▶ Simulator</strong> to start continuous live GPS generation (50 events every 10 seconds). You should see buses move in real-time on the map. Click again (<strong>⏹ Simulator</strong>) to stop.</li>
+        <li><strong>Validate simulator state:</strong> Check the simulator button label/state on the dashboard and verify the map timestamp updates while buses move.</li>
         <li><strong>Explore pages:</strong> Use the navigation bar to switch between Dashboard, Playback, Alerts, Reports, Architecture, Enhancements, and this Guide</li>
       </ol>
 
