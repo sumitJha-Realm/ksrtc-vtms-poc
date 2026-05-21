@@ -267,6 +267,7 @@
       <ol class="step-list">
         <li><strong>Start the server:</strong> <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">cd ksrtc-vtms-poc && node server.js</code> — starts Express on port 3000, connects to MongoDB Atlas, starts Change Stream processor</li>
         <li><strong>Open browser:</strong> Navigate to <code style="background:#263238;padding:2px 6px;border-radius:4px;color:#80cbc4;">http://localhost:3000</code></li>
+        <li><strong>If Live Dashboard records are not visible:</strong> Choose a duration from the hours dropdown and click <strong>🌱 Seed Data</strong> to load historical records, then click <strong>▶ Simulator</strong> to start live movement updates.</li>
         <li><strong>Seed historical data (recommended first):</strong> On the Live Dashboard, select a duration from the <strong>hours dropdown</strong> (2h, 4h, 6h, 12h, 24h, 36h, 48h) and click <strong>🌱 Seed Data</strong>. Confirm the prompt after reviewing estimated GPS events and alerts. This creates historical records for Reports, Alerts, and Playback. Data is appended — nothing is deleted.</li>
         <li><strong>Run live simulator:</strong> Click <strong>▶ Simulator</strong> to start continuous live GPS generation (50 events every 10 seconds). You should see buses move in real-time on the map. Click again (<strong>⏹ Simulator</strong>) to stop.</li>
         <li><strong>Validate simulator state:</strong> Check the simulator button label/state on the dashboard and verify the map timestamp updates while buses move.</li>
