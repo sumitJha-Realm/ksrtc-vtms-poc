@@ -11,6 +11,7 @@ const ROUTE_COLORS = ['#2196f3','#e91e63','#00bcd4','#ff9800','#9c27b0','#4caf50
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+  configureSeedingUI();
   initMap();
   loadRoutesAndStops(); // Load all route tracks + stops + depots on init
   loadDashboard();
@@ -22,6 +23,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('statusFilter').addEventListener('change', loadVehicles);
   document.getElementById('refreshBtn').addEventListener('click', loadDashboard);
 });
+
+function isLikelyVercelHost() {
+  return typeof window !== 'undefined' && window.location && window.location.hostname.includes('vercel.app');
+}
+
+function configureSeedingUI() {
+  if (!isLikelyVercelHost()) return;
+
+  const seedHours = document.getElementById('seedHours');
+  if (!seedHours) return;
+
+  [...seedHours.options].forEach((opt) => {
+    if (Number(opt.value) > 2) {
+      opt.remove();
+    }
+  });
+
+  seedHours.value = '2';
+  seedHours.title = 'On Vercel serverless, seeding is limited to 2h per run to avoid timeouts.';
+}
 
 function initMap() {
   map = L.map('map').setView([12.9716, 77.5946], 12); // Bangalore center
@@ -573,10 +594,11 @@ function toggleStopsLayer() {
 // Seed demo data (GPS history + alerts)
 async function seedDemoData() {
   const btn = document.getElementById('seedBtn');
-  const hours = parseInt(document.getElementById('seedHours').value);
+  const hours = parseInt(document.getElementById('seedHours').value, 10);
   const estEvents = (50 * 360 * hours).toLocaleString();
   const estAlerts = Math.max(5, hours * 3);
-  if (!confirm(`🌱 Seed Demo Data\n\nDuration: ${hours} hours\nEstimated GPS events: ~${estEvents}\nEstimated alerts: ~${estAlerts}\n\n(Appends to existing data — nothing is deleted)\n\nProceed?`)) return;
+  const hostHint = isLikelyVercelHost() ? '\n\nNote: This hosted demo is serverless and supports up to 2h per seed run.' : '';
+  if (!confirm(`🌱 Seed Demo Data\n\nDuration: ${hours} hours\nEstimated GPS events: ~${estEvents}\nEstimated alerts: ~${estAlerts}\n\n(Appends to existing data — nothing is deleted)${hostHint}\n\nProceed?`)) return;
 
   btn.disabled = true;
   btn.textContent = '⏳ Seeding...';
@@ -584,12 +606,21 @@ async function seedDemoData() {
 
   try {
     const res = await fetch(`/api/admin/seed-demo?hours=${hours}`, { method: 'POST' });
-    const data = await res.json();
-    if (data.success) {
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      throw new Error('Seed endpoint returned a non-JSON response (likely timeout). Please retry with 2h.');
+    }
+
+    if (res.ok && data.success) {
       alert(`✅ Seed complete!\n\n• ${data.gpsEvents.toLocaleString()} GPS events inserted\n• ${data.alerts} alerts created\n• ${data.hours}h of history added\n• 50 vehicle states updated\n\nStart GPS simulator for live movement.`);
       loadDashboard();
     } else {
-      alert('❌ Seed failed: ' + (data.error || 'Unknown error'));
+      const limitMsg = data && data.maxHours
+        ? ` Try ${data.maxHours}h in each run.`
+        : '';
+      alert('❌ Seed failed: ' + ((data && data.error) || `HTTP ${res.status}`) + limitMsg);
     }
   } catch (err) {
     alert('❌ Seed failed: ' + err.message);

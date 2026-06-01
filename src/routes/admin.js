@@ -5,6 +5,13 @@ const { recordOperationTiming } = require('../services/timingMetrics');
 
 const SEED_OPERATION_LOG_MIN_MS = Number(process.env.SEED_OPERATION_LOG_MIN_MS || 500);
 const SIM_TICK_LOG_MIN_MS = Number(process.env.SIM_TICK_LOG_MIN_MS || 100);
+const SERVERLESS_MAX_SEED_HOURS = Number(process.env.SERVERLESS_MAX_SEED_HOURS || 2);
+const SERVERLESS_SEED_INTERVAL_SECONDS = Number(process.env.SERVERLESS_SEED_INTERVAL_SECONDS || 30);
+const DEFAULT_SEED_INTERVAL_SECONDS = Number(process.env.DEFAULT_SEED_INTERVAL_SECONDS || 10);
+
+function isServerlessRuntime() {
+  return process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+}
 
 function nowMs() {
   return Number(process.hrtime.bigint() / 1000000n);
@@ -20,7 +27,23 @@ async function timedDb(stats, op) {
 // POST /api/admin/seed-demo — Generate historical GPS + alerts data
 router.post('/seed-demo', async (req, res) => {
   const db = getDB();
-  const hours = parseInt(req.query.hours) || 6;
+  const requestedHours = parseInt(req.query.hours, 10);
+  const hours = Number.isFinite(requestedHours) && requestedHours > 0 ? requestedHours : 6;
+  const serverlessMode = isServerlessRuntime();
+  const gpsIntervalSeconds = serverlessMode ? SERVERLESS_SEED_INTERVAL_SECONDS : DEFAULT_SEED_INTERVAL_SECONDS;
+  const gpsIntervalMs = gpsIntervalSeconds * 1000;
+
+  if (serverlessMode && hours > SERVERLESS_MAX_SEED_HOURS) {
+    return res.status(400).json({
+      success: false,
+      error: `Serverless seeding is capped at ${SERVERLESS_MAX_SEED_HOURS}h per run to avoid function timeout.`,
+      requestedHours: hours,
+      maxHours: SERVERLESS_MAX_SEED_HOURS,
+      serverlessMode,
+      gpsIntervalSeconds
+    });
+  }
+
   const opStartMs = nowMs();
   const stats = { dbMs: 0 };
 
@@ -35,8 +58,9 @@ router.post('/seed-demo', async (req, res) => {
     const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
     let totalGPS = 0;
-    const batchSize = 2000;
+    const batchSize = serverlessMode ? 1000 : 2000;
     let batch = [];
+    const stateOps = [];
 
     // Generate GPS history for each vehicle
     for (const vehicle of vehicles) {
@@ -111,8 +135,8 @@ router.post('/seed-demo', async (req, res) => {
           }
         }
 
-        // Advance time 10s
-        currentTime = new Date(currentTime.getTime() + 10000);
+        // Advance time in fixed telemetry intervals.
+        currentTime = new Date(currentTime.getTime() + gpsIntervalMs);
 
         // Occasional signal gap
         if (Math.random() < 0.001) {
@@ -122,27 +146,33 @@ router.post('/seed-demo', async (req, res) => {
 
       // Set final vehicle_current_state
       const lastCoord = coords[segmentIndex];
-      await timedDb(stats, () => db.collection('vehicle_current_state').updateOne(
-        { vehicleId: vehicle.vehicleId },
-        {
-          $set: {
-            location: { type: 'Point', coordinates: [lastCoord[0], lastCoord[1]] },
-            speed: Math.round(Math.random() * 50),
-            heading: Math.round(Math.random() * 360),
-            ignition: true,
-            status: Math.random() > 0.2 ? 'running' : 'idle',
-            lastUpdated: now,
-            tripId: `TRIP-${vehicle.vehicleId}-${tripCount}`
-          }
-        },
-        { upsert: true }
-      ));
+      stateOps.push({
+        updateOne: {
+          filter: { vehicleId: vehicle.vehicleId },
+          update: {
+            $set: {
+              location: { type: 'Point', coordinates: [lastCoord[0], lastCoord[1]] },
+              speed: Math.round(Math.random() * 50),
+              heading: Math.round(Math.random() * 360),
+              ignition: true,
+              status: Math.random() > 0.2 ? 'running' : 'idle',
+              lastUpdated: now,
+              tripId: `TRIP-${vehicle.vehicleId}-${tripCount}`
+            }
+          },
+          upsert: true
+        }
+      });
     }
 
     // Flush remaining GPS batch
     if (batch.length > 0) {
       await timedDb(stats, () => db.collection('gps_events').insertMany(batch));
       totalGPS += batch.length;
+    }
+
+    if (stateOps.length > 0) {
+      await timedDb(stats, () => db.collection('vehicle_current_state').bulkWrite(stateOps, { ordered: false }));
     }
 
     // Generate alerts spread across the time range
@@ -187,6 +217,8 @@ router.post('/seed-demo', async (req, res) => {
       success: true,
       message: `Seeded ${hours} hours of demo data`,
       hours,
+      serverlessMode,
+      gpsIntervalSeconds,
       gpsEvents: totalGPS,
       alerts: alerts.length,
       vehicles: vehicles.length,
