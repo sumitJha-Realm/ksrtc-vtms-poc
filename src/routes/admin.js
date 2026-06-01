@@ -5,8 +5,8 @@ const { recordOperationTiming } = require('../services/timingMetrics');
 
 const SEED_OPERATION_LOG_MIN_MS = Number(process.env.SEED_OPERATION_LOG_MIN_MS || 500);
 const SIM_TICK_LOG_MIN_MS = Number(process.env.SIM_TICK_LOG_MIN_MS || 100);
-const SERVERLESS_MAX_SEED_HOURS = Number(process.env.SERVERLESS_MAX_SEED_HOURS || 2);
-const SERVERLESS_SEED_INTERVAL_SECONDS = Number(process.env.SERVERLESS_SEED_INTERVAL_SECONDS || 30);
+const SERVERLESS_MAX_SEED_HOURS = Number(process.env.SERVERLESS_MAX_SEED_HOURS || 1);
+const SERVERLESS_SEED_INTERVAL_SECONDS = Number(process.env.SERVERLESS_SEED_INTERVAL_SECONDS || 60);
 const DEFAULT_SEED_INTERVAL_SECONDS = Number(process.env.DEFAULT_SEED_INTERVAL_SECONDS || 10);
 
 function isServerlessRuntime() {

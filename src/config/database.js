@@ -65,13 +65,17 @@ function attachDbTimingListeners(mongoClient) {
 
 async function connectDB() {
   if (db) return db;
+  const serverless = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
   client = new MongoClient(process.env.MONGODB_URI, {
-    maxPoolSize: 50,
-    minPoolSize: 5,
-    maxIdleTimeMS: 30000,
+    maxPoolSize: serverless ? 10 : 50,
+    minPoolSize: serverless ? 0 : 5,
+    maxIdleTimeMS: serverless ? 10000 : 30000,
     retryWrites: true,
     retryReads: true,
-    monitorCommands: DB_TIMING_ENABLED
+    monitorCommands: DB_TIMING_ENABLED,
+    serverSelectionTimeoutMS: Number(process.env.DB_SERVER_SELECTION_TIMEOUT_MS || (serverless ? 8000 : 30000)),
+    connectTimeoutMS: Number(process.env.DB_CONNECT_TIMEOUT_MS || (serverless ? 8000 : 30000)),
+    socketTimeoutMS: Number(process.env.DB_SOCKET_TIMEOUT_MS || (serverless ? 20000 : 0))
   });
   attachDbTimingListeners(client);
   await client.connect();

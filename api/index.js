@@ -21,9 +21,21 @@ app.use(express.json());
 // Connect to DB on cold start
 let dbConnected = false;
 app.use(async (req, res, next) => {
+  if (req.path === '/api/health') {
+    return next();
+  }
+
   if (!dbConnected) {
-    await connectDB();
-    dbConnected = true;
+    try {
+      await connectDB();
+      dbConnected = true;
+    } catch (err) {
+      console.error('DB connection failed:', err.message);
+      return res.status(503).json({
+        error: 'Database connection failed',
+        details: err.message
+      });
+    }
   }
   next();
 });
@@ -66,7 +78,7 @@ app.get('/guide', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
+  res.json({ status: 'ok', timestamp: new Date(), runtime: 'vercel-node' });
 });
 
 module.exports = app;
