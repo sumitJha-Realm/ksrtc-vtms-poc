@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
 const { recordOperationTiming } = require('../services/timingMetrics');
+const { ensureBaseMasterData } = require('../seed/seedData');
 
 const SEED_OPERATION_LOG_MIN_MS = Number(process.env.SEED_OPERATION_LOG_MIN_MS || 500);
 const SIM_TICK_LOG_MIN_MS = Number(process.env.SIM_TICK_LOG_MIN_MS || 100);
-const SERVERLESS_MAX_SEED_HOURS = Number(process.env.SERVERLESS_MAX_SEED_HOURS || 1);
+const SERVERLESS_MAX_SEED_HOURS = Number(process.env.SERVERLESS_MAX_SEED_HOURS || 2);
 const SERVERLESS_SEED_INTERVAL_SECONDS = Number(process.env.SERVERLESS_SEED_INTERVAL_SECONDS || 60);
 const DEFAULT_SEED_INTERVAL_SECONDS = Number(process.env.DEFAULT_SEED_INTERVAL_SECONDS || 10);
 
@@ -23,6 +24,20 @@ async function timedDb(stats, op) {
   stats.dbMs += (nowMs() - start);
   return result;
 }
+
+// GET /api/admin/seed-config — Returns active seed limits for UI/runtime awareness
+router.get('/seed-config', async (req, res) => {
+  const serverlessMode = isServerlessRuntime();
+  const maxHours = serverlessMode ? SERVERLESS_MAX_SEED_HOURS : 48;
+  const gpsIntervalSeconds = serverlessMode ? SERVERLESS_SEED_INTERVAL_SECONDS : DEFAULT_SEED_INTERVAL_SECONDS;
+
+  res.json({
+    success: true,
+    serverlessMode,
+    maxHours,
+    gpsIntervalSeconds
+  });
+});
 
 // POST /api/admin/seed-demo — Generate historical GPS + alerts data
 router.post('/seed-demo', async (req, res) => {
@@ -48,9 +63,19 @@ router.post('/seed-demo', async (req, res) => {
   const stats = { dbMs: 0 };
 
   try {
+    const bootstrap = await timedDb(stats, () => ensureBaseMasterData(db));
 
     const vehicles = await timedDb(stats, () => db.collection('vehicles').find({}).toArray());
     const routes = await timedDb(stats, () => db.collection('routes').find({}).toArray());
+
+    if (vehicles.length === 0 || routes.length === 0) {
+      return res.status(503).json({
+        success: false,
+        error: 'Base master data is missing. Please initialize vehicles and routes, then retry seeding.',
+        bootstrap
+      });
+    }
+
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
 
@@ -217,6 +242,7 @@ router.post('/seed-demo', async (req, res) => {
       success: true,
       message: `Seeded ${hours} hours of demo data`,
       hours,
+      bootstrap,
       serverlessMode,
       gpsIntervalSeconds,
       gpsEvents: totalGPS,

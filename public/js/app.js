@@ -8,6 +8,7 @@ let showRoutes = true;  // Toggle for route visibility
 
 // Route colors for visual distinction
 const ROUTE_COLORS = ['#2196f3','#e91e63','#00bcd4','#ff9800','#9c27b0','#4caf50','#f44336','#3f51b5','#009688','#ff5722'];
+let seedConfig = { serverlessMode: false, maxHours: 48, gpsIntervalSeconds: 10 };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,20 +29,58 @@ function isLikelyVercelHost() {
   return typeof window !== 'undefined' && window.location && window.location.hostname.includes('vercel.app');
 }
 
-function configureSeedingUI() {
-  if (!isLikelyVercelHost()) return;
-
+async function configureSeedingUI() {
   const seedHours = document.getElementById('seedHours');
   if (!seedHours) return;
 
+  let maxHours = 48;
+  let serverlessMode = false;
+
+  try {
+    const res = await fetch('/api/admin/seed-config');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) {
+        maxHours = Number(data.maxHours) || maxHours;
+        serverlessMode = !!data.serverlessMode;
+        seedConfig = {
+          serverlessMode,
+          maxHours,
+          gpsIntervalSeconds: Number(data.gpsIntervalSeconds) || seedConfig.gpsIntervalSeconds
+        };
+      }
+    }
+  } catch (err) {
+    if (isLikelyVercelHost()) {
+      maxHours = 2;
+      serverlessMode = true;
+      seedConfig = {
+        serverlessMode,
+        maxHours,
+        gpsIntervalSeconds: 60
+      };
+    }
+  }
+
   [...seedHours.options].forEach((opt) => {
-    if (Number(opt.value) > 2) {
+    if (Number(opt.value) > maxHours) {
       opt.remove();
     }
   });
 
-  seedHours.value = '2';
-  seedHours.title = 'On Vercel serverless, seeding is limited to 2h per run to avoid timeouts.';
+  const optionValues = [...seedHours.options].map((opt) => Number(opt.value));
+  if (optionValues.length > 0) {
+    const currentValue = Number(seedHours.value);
+    if (!Number.isFinite(currentValue) || currentValue > maxHours) {
+      seedHours.value = String(Math.max(...optionValues));
+    }
+  }
+
+  if (serverlessMode) {
+    seedHours.title = `This hosted demo is serverless. Seeding is limited to ${maxHours}h per run to avoid timeouts.`;
+  } else {
+    seedHours.title = 'Select how much historical demo data to generate.';
+  }
 }
 
 function initMap() {
@@ -597,7 +636,9 @@ async function seedDemoData() {
   const hours = parseInt(document.getElementById('seedHours').value, 10);
   const estEvents = (50 * 360 * hours).toLocaleString();
   const estAlerts = Math.max(5, hours * 3);
-  const hostHint = isLikelyVercelHost() ? '\n\nNote: This hosted demo is serverless and supports up to 2h per seed run.' : '';
+  const hostHint = seedConfig.serverlessMode
+    ? `\n\nNote: This hosted demo is serverless and supports up to ${seedConfig.maxHours}h per seed run.`
+    : '';
   if (!confirm(`🌱 Seed Demo Data\n\nDuration: ${hours} hours\nEstimated GPS events: ~${estEvents}\nEstimated alerts: ~${estAlerts}\n\n(Appends to existing data — nothing is deleted)${hostHint}\n\nProceed?`)) return;
 
   btn.disabled = true;
@@ -610,7 +651,7 @@ async function seedDemoData() {
     try {
       data = await res.json();
     } catch (parseErr) {
-      throw new Error('Seed endpoint returned a non-JSON response (likely timeout). Please retry with 2h.');
+      throw new Error(`Seed endpoint returned a non-JSON response (likely timeout). Please retry with ${seedConfig.maxHours}h or less.`);
     }
 
     if (res.ok && data.success) {

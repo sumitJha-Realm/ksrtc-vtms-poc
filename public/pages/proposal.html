@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KSRTC VTMS — MongoDB Atlas Solution Proposal</title>
+  <style>
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page-break { page-break-before: always; }
+      .no-print { display: none; }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; background: #fff; color: #1a1a2e; line-height: 1.6; padding: 2rem; max-width: 1100px; margin: 0 auto; }
+    
+    /* Cover */
+    .cover { text-align: center; padding: 4rem 2rem; border-bottom: 3px solid #00684A; margin-bottom: 3rem; }
+    .cover img { width: 160px; margin-bottom: 1.5rem; }
+    .cover h1 { font-size: 2.2rem; color: #00684A; margin-bottom: 0.5rem; }
+    .cover h2 { font-size: 1.3rem; color: #333; font-weight: 400; margin-bottom: 1.5rem; }
+    .cover .meta { color: #666; font-size: 0.9rem; }
+    .cover .links { margin-top: 1.5rem; }
+    .cover .links a { display: inline-block; margin: 0.3rem 0.5rem; padding: 0.5rem 1.2rem; border: 1px solid #00684A; border-radius: 6px; color: #00684A; text-decoration: none; font-size: 0.85rem; }
+    .cover .links a:hover { background: #00684A; color: #fff; }
+
+    /* Section headers */
+    h2 { color: #00684A; font-size: 1.5rem; margin: 2.5rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e8f5e9; }
+    h3 { color: #1a1a2e; font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+    h4 { color: #00684A; font-size: 0.95rem; margin: 1rem 0 0.3rem; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; }
+    th { background: #00684A; color: #fff; padding: 0.6rem 0.8rem; text-align: left; font-weight: 600; }
+    td { padding: 0.55rem 0.8rem; border-bottom: 1px solid #e0e0e0; color: #333; vertical-align: top; }
+    tr:nth-child(even) { background: #f8faf9; }
+    .tag { display: inline-block; background: #e8f5e9; color: #00684A; font-size: 0.72rem; padding: 2px 6px; border-radius: 3px; margin-right: 3px; font-weight: 600; }
+
+    /* Lists */
+    ul, ol { margin: 0.5rem 0 0.5rem 1.5rem; }
+    li { margin-bottom: 0.3rem; font-size: 0.9rem; }
+
+    /* Code */
+    code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: 0.82rem; color: #00684A; }
+    pre { background: #1a1a2e; color: #a5d6a7; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; margin: 0.75rem 0; }
+
+    /* Callout boxes */
+    .callout { background: #f1f8e9; border-left: 4px solid #00684A; border-radius: 4px; padding: 0.8rem 1rem; margin: 1rem 0; font-size: 0.88rem; }
+    .callout strong { color: #00684A; }
+    .callout-warn { background: #fff8e1; border-left-color: #ff9800; }
+    .callout-warn strong { color: #e65100; }
+
+    /* Architecture diagram */
+    .arch-diagram { background: #1a1a2e; color: #b0bec5; border-radius: 10px; padding: 1.5rem; margin: 1rem 0; overflow-x: auto; }
+    .arch-diagram pre { background: none; padding: 0; margin: 0; color: #b0bec5; }
+    .arch-diagram .hl { color: #4fc3f7; }
+    .arch-diagram .green { color: #a5d6a7; }
+    .arch-diagram .orange { color: #ffcc80; }
+
+    /* Feature grid */
+    .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    .feature-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; }
+    .feature-box h4 { margin-top: 0; }
+    .feature-box p { font-size: 0.85rem; color: #555; margin: 0.3rem 0; }
+
+    /* Print button */
+    .print-btn { position: fixed; bottom: 2rem; right: 2rem; background: #00684A; color: #fff; border: none; padding: 0.8rem 1.5rem; border-radius: 8px; font-size: 0.9rem; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1000; }
+    .print-btn:hover { background: #004d35; }
+
+    p { font-size: 0.9rem; color: #444; margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">📄 Save as PDF</button>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <img src="https://webimages.mongodb.com/_com_assets/cms/mongodb_logo1-76twgcu2dm.png" alt="MongoDB" onerror="this.style.display='none'" />
+  <h1>KSRTC VTMS — MongoDB Atlas Solution Proposal</h1>
+  <h2>Vehicle Tracking & Management System — Proof of Concept</h2>
+  <p class="meta">Prepared for: KSRTC Team &nbsp;|&nbsp; Date: May 2026</p>
+  <div class="links">
+    <a href="https://ksrtc-vtms-poc.vercel.app" target="_blank">🌐 Live Demo</a>
+    <a href="https://github.com/sumitJha-Realm/ksrtc-vtms-poc" target="_blank">💻 GitHub</a>
+    <a href="https://ksrtc-vtms-poc.vercel.app/architecture" target="_blank">🏗️ Architecture</a>
+    <a href="https://www.mongodb.com/solutions/customer-case-studies/toyota-connected" target="_blank">📄 Toyota Case Study</a>
+  </div>
+</div>
+
+<!-- 1. EXECUTIVE SUMMARY -->
+<h2>1. Executive Summary</h2>
+<p>This document presents how <strong>MongoDB Atlas</strong> addresses all KPI and SLA requirements for the KSRTC Vehicle Tracking & Management System — covering 8,000+ vehicles, 86 depots, real-time telemetry at 70M GPS records/day, and 16 operational report types.</p>
+<p>A working Proof of Concept demonstrates core patterns including Time Series ingestion, Change Stream alerting, geospatial queries, and aggregation-based analytics — all running on a single MongoDB Atlas platform.</p>
+
+<div class="callout">
+  <strong>Key Reference:</strong> Toyota Connected operates 9M+ connected devices on MongoDB Atlas — validating this architecture at far greater scale than KSRTC's requirements. <a href="https://www.mongodb.com/solutions/customer-case-studies/toyota-connected">View Case Study →</a>
+</div>
+
+<!-- 2. DEMO SCOPE -->
+<h2>2. PoC Demo Scope</h2>
+
+<table>
+  <tr><th>Aspect</th><th>PoC Coverage</th></tr>
+  <tr><td>Vehicles</td><td>50 simulated buses across 10 routes, 10 depots</td></tr>
+  <tr><td>GPS Ingestion</td><td>Configurable seed (2h–48h history) + live simulator (50 events/10s)</td></tr>
+  <tr><td>Real-Time Dashboard</td><td>Live map with vehicle tracking, status, speed, depot filtering</td></tr>
+  <tr><td>Route Playback</td><td>Animated replay with speed coloring, play/pause, 1x/2x/4x/8x</td></tr>
+  <tr><td>Alerts</td><td>Real-time overspeed, harsh braking, geofence breach, panic — with GPS trail context</td></tr>
+  <tr><td>Reports</td><td>9 report types with "Show Logic" modal exposing MongoDB pipeline details</td></tr>
+  <tr><td>Geofencing</td><td>10 geofence zones with point-in-polygon detection</td></tr>
+  <tr><td>Architecture Docs</td><td>8-tab technical deep dive (schemas, indexes, Change Streams, sizing, compliance)</td></tr>
+  <tr><td>Enhancements</td><td>Production roadmap: Kafka, Triggers, Stream Processing, Online Archive, Data Federation</td></tr>
+</table>
+
+<div class="callout">
+  <strong>Access:</strong> Live at <a href="https://ksrtc-vtms-poc.vercel.app">https://ksrtc-vtms-poc.vercel.app</a> &nbsp;|&nbsp; Source: <a href="https://github.com/sumitJha-Realm/ksrtc-vtms-poc">GitHub</a>
+</div>
+
+<!-- 3. HOW TO USE THE DEMO -->
+<h2>3. How to Use the Demo</h2>
+<ol>
+  <li><strong>Open the app:</strong> Visit <a href="https://ksrtc-vtms-poc.vercel.app">https://ksrtc-vtms-poc.vercel.app</a></li>
+  <li><strong>If no data visible:</strong> Select duration from the hours dropdown (2h–48h) → click <strong>🌱 Seed Data</strong> → confirm the prompt.</li>
+  <li><strong>Start live simulation:</strong> Click <strong>▶ Simulator</strong> on the dashboard. Buses move in real-time on the map.</li>
+  <li><strong>Explore features:</strong>
+    <ul>
+      <li><strong>Live Dashboard</strong> — Real-time positions, depot/status filters, route tracks, bus stops</li>
+      <li><strong>Route Playback</strong> — Select bus + time range → animated GPS trail replay</li>
+      <li><strong>Alerts</strong> — Click any alert → see GPS trail, speed graph, detection formula</li>
+      <li><strong>Reports</strong> — Click report card → results + "⚙ Show Logic" for pipeline details</li>
+      <li><strong>Architecture</strong> — Current vs proposed architecture, schemas, indexes, sizing</li>
+      <li><strong>Enhancements</strong> — Production roadmap with Kafka, Triggers, Stream Processing</li>
+    </ul>
+  </li>
+  <li><strong>Stop simulator:</strong> Click <strong>⏹ Simulator</strong> when done.</li>
+</ol>
+
+<div class="callout-warn callout">
+  <strong>Tip:</strong> Seed data first (creates history for Reports, Alerts, Playback), then start Simulator for live movement.
+</div>
+
+<!-- 4. ARCHITECTURE -->
+<div class="page-break"></div>
+<h2>4. Architecture</h2>
+
+<h3>Current PoC Architecture</h3>
+<div class="arch-diagram">
+<pre>
+┌─────────────────────────────────────────────────────────────────┐
+│                    <span class="hl">Browser (Leaflet.js)</span>                          │
+│  Live Dashboard │ Playback │ Alerts │ Reports │ Architecture     │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTP / Polling (3s)
+┌────────────────────────────▼────────────────────────────────────┐
+│                 <span class="green">Express.js Server (:3000)</span>                        │
+│  Dashboard API │ Change Stream Processor │ Geofence │ Admin      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ MongoDB Driver (Connection Pool)
+┌────────────────────────────▼────────────────────────────────────┐
+│                    <span class="orange">MongoDB Atlas (M10+)</span>                         │
+│                                                                   │
+│  gps_events (Time Series) │ vehicle_current_state │ alerts        │
+│  routes (GeoJSON)         │ bus_stops (GeoJSON)   │ depots        │
+│  vehicles                 │ geofences (Polygon)   │ schedules     │
+└──────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+
+<h3>Proposed Production Architecture</h3>
+<div class="arch-diagram">
+<pre>
+  GPS Devices (8,000+)
+        │
+        ▼
+┌──────────────────┐     ┌───────────────────────┐
+│  <span class="orange">Apache Kafka</span>     │────▶│  <span class="hl">Atlas Stream Processing</span>│
+│  (Ingest Buffer) │     │  (Windowed Analytics) │
+└──────────────────┘     └───────────┬───────────┘
+        │                            │
+        ▼                            ▼
+┌──────────────────────────────────────────────────┐
+│              <span class="green">MongoDB Atlas Cluster</span>                  │
+│  Time Series │ Current State │ Alerts │ Reports   │
+└──────────────────────┬───────────────────────────┘
+        │              │              │
+        ▼              ▼              ▼
+  <span class="hl">Atlas Triggers</span>   <span class="orange">Online Archive</span>   <span class="hl">Data Federation</span>
+  (Notifications)  (Cold Storage)   (Cross-tier Query)
+</pre>
+</div>
+
+<p>Full architecture details with schemas, indexes, sizing, and compliance are available at: <a href="https://ksrtc-vtms-poc.vercel.app/architecture">Architecture Page</a></p>
+
+<!-- 5. KPI COVERAGE -->
+<div class="page-break"></div>
+<h2>5. KPI & SLA Coverage</h2>
+
+<h3>5.1 Scale & Throughput</h3>
+<table>
+  <tr><th>Requirement</th><th>MongoDB Atlas Solution</th></tr>
+  <tr><td>~8,000 vehicles (scalable to 10,000+), 86 depots</td><td>Sharded cluster with vehicleId shard key. Add shards = add capacity linearly. Proven at Toyota scale (9M+ devices).</td></tr>
+  <tr><td>70M GPS records/day at 10s intervals</td><td>Time Series collections with auto-bucketing optimized for high-ingest IoT workloads.</td></tr>
+  <tr><td>~1,000 msg/sec peak</td><td>Single M50+ replica handles this. Sharded deployments support 10x+.</td></tr>
+  <tr><td>5,000 concurrent connections</td><td>Atlas supports 10K+ connections/node. Driver connection pooling keeps usage efficient.</td></tr>
+  <tr><td>300 concurrent dashboard users</td><td>Read from secondary replicas or analytics node offloads dashboard traffic.</td></tr>
+  <tr><td>Scale to 2x capacity</td><td>Atlas autoscaling (vertical + horizontal) scales up/down automatically with no human intervention.</td></tr>
+</table>
+
+<h3>5.2 Real-Time Performance</h3>
+<table>
+  <tr><th>Requirement</th><th>MongoDB Atlas Solution</th></tr>
+  <tr><td>GPS → dashboard update: &lt; 5s</td><td>Change Streams propagate in milliseconds; dashboard polls every 3s.</td></tr>
+  <tr><td>Alert processing: &lt; 5s</td><td>In-memory rule evaluation on Change Stream events; sub-second alert persistence.</td></tr>
+  <tr><td>App response: &lt; 10s</td><td>Compound indexes + Time Series bucket pruning = low-ms query times.</td></tr>
+  <tr><td>Recovery after failure: &lt; 1h</td><td>Atlas failover in ~10-30s. Resume tokens ensure zero event loss.</td></tr>
+</table>
+
+<h3>5.3 Availability & Reliability</h3>
+<table>
+  <tr><th>Requirement</th><th>MongoDB Atlas Solution</th></tr>
+  <tr><td>Availability: &gt; 99%</td><td>Atlas 99.995% SLA on dedicated tiers. Automatic failover + retryable writes.</td></tr>
+  <tr><td>Data accuracy: 100%</td><td>Write concern <code>majority</code> — data persisted on multiple nodes before ack.</td></tr>
+  <tr><td>Zero SPOF / BCP/DR</td><td>Multi-node replica sets, multi-region option, continuous backup, point-in-time restore.</td></tr>
+</table>
+
+<h3>5.4 Spatial & Geofencing</h3>
+<p>MongoDB natively supports <code>2dsphere</code> geometric indexes with operators (<code>$geoWithin</code>, <code>$geoNear</code>, <code>$geoIntersects</code>) for point-in-polygon, proximity, and corridor checks. All analytical processing — route deviation, stop detection, sequence-aware skip logic — is handled at the aggregation pipeline level using <code>$setWindowFields</code>, <code>$shift</code>, and sliding window functions, eliminating any external geospatial engine.</p>
+
+<table>
+  <tr><th>Requirement</th><th>Solution</th></tr>
+  <tr><td>~800 PIP checks/sec</td><td><code>$geoWithin</code> + 2dsphere = sub-ms/check. 800/sec trivial for single node.</td></tr>
+  <tr><td>Route corridor deviation (100m)</td><td>Distance vs route LineString per ping, configurable threshold.</td></tr>
+  <tr><td>Stop arrival/departure/skip</td><td>Sequence-aware aggregation with <code>$setWindowFields</code>.</td></tr>
+  <tr><td>Nearest stop (mobile app)</td><td><code>$geoNear</code> sorted by distance, &lt; 5ms response.</td></tr>
+</table>
+
+<h3>5.5 Operational Monitoring</h3>
+<p>MongoDB Change Streams, Atlas Triggers, and Atlas Stream Processing provide sub-second event propagation for live tracking, ETA recalculation, and alert triggering. All detection logic is evaluated using aggregation pipelines with <code>$setWindowFields</code>, <code>$shift</code>, <code>$dateDiff</code>, and sliding window expressions at the database layer. Atlas Triggers enable serverless reactions (notifications, escalations), and Stream Processing supports continuous windowed analytics — eliminating external CEP or Kafka Streams.</p>
+
+<table>
+  <tr><th>Requirement</th><th>Solution</th></tr>
+  <tr><td>Live tracking &lt; 5s freshness</td><td>Change Stream → current-state collection; 3s dashboard poll.</td></tr>
+  <tr><td>ETA/ETD per ping, cascaded</td><td>Recomputed per GPS event; downstream stops updated atomically.</td></tr>
+  <tr><td>Schedule adherence (5/10 min)</td><td><code>$dateDiff</code> vs schedule; configurable thresholds.</td></tr>
+  <tr><td>Unauthorized stop (&gt; 3 min)</td><td>Sliding window on stationary pings outside stop radius.</td></tr>
+  <tr><td>Overspeed / Harsh events</td><td><code>$setWindowFields</code> + <code>$shift</code> computes delta between pings.</td></tr>
+  <tr><td>Breakdown inference</td><td>Behaviour pattern detection + device-reported ingest.</td></tr>
+  <tr><td>Panic button lifecycle</td><td>Active until manual close; triggers push to CCS + Police.</td></tr>
+</table>
+
+<h3>5.6 Data Retention & History</h3>
+<table>
+  <tr><th>Requirement</th><th>Solution</th></tr>
+  <tr><td>90-day GPS history</td><td>TTL indexes auto-expire. Online Archive tiers to cheap queryable storage.</td></tr>
+  <tr><td>Route playback (1x/2x/4x/10x)</td><td>Bucket-optimized Time Series query; client-side animation.</td></tr>
+  <tr><td>Export (Word/Excel/PDF)</td><td>API-driven report data → document export layer.</td></tr>
+  <tr><td>1-year audit log</td><td>Atlas auditing + dedicated collection with extended TTL.</td></tr>
+</table>
+
+<!-- 6. REPORTS -->
+<div class="page-break"></div>
+<h2>6. Reporting Coverage (16 Report Types)</h2>
+
+<table>
+  <tr><th>#</th><th>Report</th><th>MongoDB Approach</th><th>Key Operators</th></tr>
+  <tr><td>1</td><td>Vehicle Tracking Summary</td><td>Group GPS by vehicle, compute distance/hours/speed</td><td><code>$group</code> <code>$dateDiff</code></td></tr>
+  <tr><td>2</td><td>Schedule Adherence</td><td>Compare actual arrival vs schedule master</td><td><code>$dateDiff</code> <code>$lookup</code></td></tr>
+  <tr><td>3</td><td>Overspeeding Violations</td><td>Match events exceeding threshold</td><td><code>$match</code> <code>$geoWithin</code></td></tr>
+  <tr><td>4</td><td>Breakdown Incidents</td><td>Query alerts by type = breakdown</td><td><code>$match</code> <code>$sort</code></td></tr>
+  <tr><td>5</td><td>Depot-wise Vehicle Status</td><td>Join vehicles with depots, group by depot</td><td><code>$lookup</code> <code>$group</code></td></tr>
+  <tr><td>6</td><td>Division-wise Vehicle Status</td><td>Group by division field</td><td><code>$group</code></td></tr>
+  <tr><td>7</td><td>Schedule Master</td><td>Direct read from schedules collection</td><td><code>find()</code></td></tr>
+  <tr><td>8</td><td>Route Master</td><td>Routes with GeoJSON geometry</td><td><code>find()</code></td></tr>
+  <tr><td>9</td><td>Route Playback</td><td>Time-range query ordered by timestamp</td><td><code>$match</code> <code>$sort</code></td></tr>
+  <tr><td>10</td><td>Harsh Braking</td><td>Deceleration from consecutive pings</td><td><code>$setWindowFields</code> <code>$shift</code></td></tr>
+  <tr><td>11</td><td>Bus Stop Skipping</td><td>Expected vs actual proximity matches</td><td><code>$geoNear</code> <code>$lookup</code></td></tr>
+  <tr><td>12</td><td>Unauthorized Stop</td><td>Sliding window stationary detection</td><td><code>$setWindowFields</code> <code>$sum</code></td></tr>
+  <tr><td>13</td><td>Passenger SOS/Panic</td><td>Panic alerts with lifecycle status</td><td><code>$match</code></td></tr>
+  <tr><td>14</td><td>GPS Device Master</td><td>Device/vehicle metadata read</td><td><code>find()</code></td></tr>
+  <tr><td>15</td><td>GPS Device Mapping History</td><td>Device-to-vehicle assignment log</td><td><code>$match</code> <code>$sort</code></td></tr>
+  <tr><td>16</td><td>Panic Button Mapping</td><td>Device-to-button assignment query</td><td><code>$lookup</code></td></tr>
+</table>
+
+<div class="callout">
+  <strong>All 16 reports</strong> are powered by MongoDB aggregation pipelines, geospatial operators, and Time Series optimizations — no external analytics engine required.
+</div>
+
+<!-- 7. FEATURE IMPLEMENTATION -->
+<div class="page-break"></div>
+<h2>7. Feature Implementation — PoC vs Production</h2>
+
+<table>
+  <tr><th>Feature</th><th>PoC (Current)</th><th>Production (Enhanced)</th></tr>
+  <tr>
+    <td><strong>GPS Ingestion</strong></td>
+    <td>Direct writes from Express server to Time Series collection</td>
+    <td>Kafka as durable ingest buffer → Atlas Stream Processing → MongoDB (handles burst, backpressure, replay)</td>
+  </tr>
+  <tr>
+    <td><strong>Real-Time Alerts</strong></td>
+    <td>In-process Change Stream watcher on Node.js server</td>
+    <td>Atlas Triggers (serverless, managed, auto-scaled) with push to notification services (SMS, email, CCS)</td>
+  </tr>
+  <tr>
+    <td><strong>Stream Analytics</strong></td>
+    <td>Post-ingest aggregation queries on demand</td>
+    <td>Atlas Stream Processing with tumbling/sliding windows — continuous windowed analytics on live stream (native MQL)</td>
+  </tr>
+  <tr>
+    <td><strong>Data Retention</strong></td>
+    <td>All data in hot cluster</td>
+    <td>Online Archive auto-tiers to cold storage after N days; 99% cost reduction on historical data, still queryable</td>
+  </tr>
+  <tr>
+    <td><strong>Cross-Tier Queries</strong></td>
+    <td>Single cluster queries only</td>
+    <td>Data Federation queries across hot cluster + archive + S3 with single MQL statement for yearly reports</td>
+  </tr>
+  <tr>
+    <td><strong>Dashboard Delivery</strong></td>
+    <td>HTTP polling every 3 seconds</td>
+    <td>WebSocket/SSE push from Change Stream → instant UI updates, reduced network overhead</td>
+  </tr>
+  <tr>
+    <td><strong>HA / DR</strong></td>
+    <td>Single-region replica set</td>
+    <td>Multi-region cluster with cross-region failover, continuous backup, point-in-time restore</td>
+  </tr>
+  <tr>
+    <td><strong>Security</strong></td>
+    <td>Basic auth / env-based connection</td>
+    <td>VPC peering, encryption at rest (CMK), field-level encryption, LDAP/SCRAM auth, audit logging</td>
+  </tr>
+  <tr>
+    <td><strong>Scaling</strong></td>
+    <td>Single node, vertical only</td>
+    <td>Atlas autoscaling (vertical + horizontal), sharding on vehicleId for linear write distribution</td>
+  </tr>
+</table>
+
+<!-- 8. ENHANCEMENTS ROADMAP -->
+<h2>8. Production Enhancement Roadmap</h2>
+
+<h3>8.1 Apache Kafka — Ingest Buffer</h3>
+<p><strong>Why:</strong> Decouples device ingest from database writes. Handles burst traffic (1K+ msg/sec peaks), provides replay capability, and prevents data loss during maintenance.</p>
+<p><strong>Result:</strong> Zero data loss guarantee at 80K+ messages/sec capacity.</p>
+
+<h3>8.2 Atlas Triggers — Serverless Event Processing</h3>
+<p><strong>Why:</strong> Replace in-process Change Stream watchers with managed serverless functions. Auto-scales with event volume, no infrastructure to manage.</p>
+<p><strong>Result:</strong> Alert notifications, escalations, and integrations triggered automatically without application deployment.</p>
+
+<h3>8.3 Atlas Stream Processing — Continuous Windowed Analytics</h3>
+<p><strong>Why:</strong> Run tumbling and sliding window computations on the live GPS stream in native MQL. Detect patterns (unauthorized stops, speed anomalies) continuously without batch queries.</p>
+<p><strong>Result:</strong> Real-time derived metrics and KPIs with millisecond latency.</p>
+
+<h3>8.4 Online Archive — Cost-Optimized Retention</h3>
+<p><strong>Why:</strong> Auto-tier GPS data older than 90 days to low-cost cloud storage while keeping it fully queryable via standard MongoDB queries.</p>
+<p><strong>Result:</strong> 99% storage cost reduction on historical data with zero query code changes.</p>
+
+<h3>8.5 Data Federation — Cross-Tier Queries</h3>
+<p><strong>Why:</strong> Query across hot cluster + Online Archive + S3 with a single MQL query. Enables yearly reports and long-term trend analysis.</p>
+<p><strong>Result:</strong> Unified query interface across all data tiers; no ETL pipelines needed.</p>
+
+<div class="callout">
+  <strong>Full enhancement details with before/after comparisons, code samples, and metrics</strong> are available at: <a href="https://ksrtc-vtms-poc.vercel.app/enhancements">Enhancements Page</a>
+</div>
+
+<!-- 9. REFERENCES -->
+<div class="page-break"></div>
+<h2>9. References & Links</h2>
+
+<table>
+  <tr><th>Resource</th><th>URL</th></tr>
+  <tr><td>Live PoC Demo</td><td><a href="https://ksrtc-vtms-poc.vercel.app">https://ksrtc-vtms-poc.vercel.app</a></td></tr>
+  <tr><td>GitHub Source Code</td><td><a href="https://github.com/sumitJha-Realm/ksrtc-vtms-poc">https://github.com/sumitJha-Realm/ksrtc-vtms-poc</a></td></tr>
+  <tr><td>Architecture Details</td><td><a href="https://ksrtc-vtms-poc.vercel.app/architecture">https://ksrtc-vtms-poc.vercel.app/architecture</a></td></tr>
+  <tr><td>Enhancements Roadmap</td><td><a href="https://ksrtc-vtms-poc.vercel.app/enhancements">https://ksrtc-vtms-poc.vercel.app/enhancements</a></td></tr>
+  <tr><td>Usage Guide</td><td><a href="https://ksrtc-vtms-poc.vercel.app/guide">https://ksrtc-vtms-poc.vercel.app/guide</a></td></tr>
+  <tr><td>Toyota Connected Case Study</td><td><a href="https://www.mongodb.com/solutions/customer-case-studies/toyota-connected">mongodb.com/case-studies/toyota-connected</a></td></tr>
+  <tr><td>MongoDB Atlas Documentation</td><td><a href="https://www.mongodb.com/docs/atlas/">mongodb.com/docs/atlas</a></td></tr>
+  <tr><td>Time Series Collections</td><td><a href="https://www.mongodb.com/docs/manual/core/timeseries-collections/">mongodb.com/docs/timeseries</a></td></tr>
+  <tr><td>Change Streams</td><td><a href="https://www.mongodb.com/docs/manual/changeStreams/">mongodb.com/docs/changeStreams</a></td></tr>
+  <tr><td>Atlas Stream Processing</td><td><a href="https://www.mongodb.com/docs/atlas/atlas-stream-processing/">mongodb.com/docs/stream-processing</a></td></tr>
+</table>
+
+<hr style="margin: 3rem 0; border-color: #e0e0e0;">
+<p style="text-align:center; color:#666; font-size:0.85rem;">
+  <strong>MongoDB Solutions Architecture</strong> &nbsp;|&nbsp; Confidential &nbsp;|&nbsp; May 2026
+</p>
+
+</body>
+</html>

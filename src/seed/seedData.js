@@ -153,6 +153,40 @@ const DEPOTS = [
   { depotId: 'DEP05', name: 'Peenya Depot', division: 'Bangalore West', lat: 13.0300, lon: 77.5200 }
 ];
 
+function buildRouteDocuments() {
+  return ROUTES_DATA.map(r => ({
+    routeId: r.routeId,
+    name: r.name,
+    depotId: r.depotId,
+    totalStops: r.stops.length,
+    distanceKm: 15 + Math.random() * 35,
+    geometry: {
+      type: 'LineString',
+      coordinates: r.stops.map(s => [s.lon, s.lat])
+    },
+    stopIds: r.stops.map(s => s.stopId)
+  }));
+}
+
+function buildBusStopsDocuments() {
+  const allStops = [];
+  const stopSet = new Set();
+  for (const route of ROUTES_DATA) {
+    for (const stop of route.stops) {
+      if (!stopSet.has(stop.stopId)) {
+        stopSet.add(stop.stopId);
+        allStops.push({
+          stopId: stop.stopId,
+          name: stop.name,
+          location: { type: 'Point', coordinates: [stop.lon, stop.lat] },
+          routeIds: ROUTES_DATA.filter(r => r.stops.some(s => s.stopId === stop.stopId)).map(r => r.routeId)
+        });
+      }
+    }
+  }
+  return allStops;
+}
+
 function generateVehicles() {
   const vehicles = [];
   const types = ['Volvo AC', 'Non-AC', 'Ordinary', 'Airavat'];
@@ -326,10 +360,75 @@ async function seedData() {
   console.log(`✓ Seeded ${schedules.length} schedules`);
 
   console.log('\n✅ Seed complete!');
-  process.exit(0);
 }
 
-seedData().catch(err => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+async function ensureBaseMasterData(db) {
+  const summary = {
+    depots: 0,
+    vehicles: 0,
+    routes: 0,
+    busStops: 0,
+    geofences: 0,
+    schedules: 0
+  };
+
+  const depotsCount = await db.collection('depots').countDocuments({}, { limit: 1 });
+  if (depotsCount === 0) {
+    await db.collection('depots').insertMany(DEPOTS);
+    summary.depots = DEPOTS.length;
+  }
+
+  const vehiclesCount = await db.collection('vehicles').countDocuments({}, { limit: 1 });
+  if (vehiclesCount === 0) {
+    const vehicles = generateVehicles();
+    await db.collection('vehicles').insertMany(vehicles);
+    summary.vehicles = vehicles.length;
+  }
+
+  const routesCount = await db.collection('routes').countDocuments({}, { limit: 1 });
+  if (routesCount === 0) {
+    const routes = buildRouteDocuments();
+    await db.collection('routes').insertMany(routes);
+    summary.routes = routes.length;
+  }
+
+  const stopsCount = await db.collection('bus_stops').countDocuments({}, { limit: 1 });
+  if (stopsCount === 0) {
+    const allStops = buildBusStopsDocuments();
+    await db.collection('bus_stops').insertMany(allStops);
+    summary.busStops = allStops.length;
+  }
+
+  const geofenceCount = await db.collection('geofences').countDocuments({}, { limit: 1 });
+  if (geofenceCount === 0) {
+    const geofences = generateGeofences();
+    await db.collection('geofences').insertMany(geofences);
+    summary.geofences = geofences.length;
+  }
+
+  const schedulesCount = await db.collection('schedules').countDocuments({}, { limit: 1 });
+  if (schedulesCount === 0) {
+    const vehiclesForSchedule = await db.collection('vehicles').find({}).toArray();
+    if (vehiclesForSchedule.length > 0) {
+      const schedules = generateSchedules(vehiclesForSchedule);
+      await db.collection('schedules').insertMany(schedules);
+      summary.schedules = schedules.length;
+    }
+  }
+
+  return summary;
+}
+
+if (require.main === module) {
+  seedData()
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
+}
+
+module.exports = {
+  seedData,
+  ensureBaseMasterData
+};

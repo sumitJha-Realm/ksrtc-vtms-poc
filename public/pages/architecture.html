@@ -92,6 +92,7 @@
       <button class="tab-btn" data-tab="sizing">Storage & Cluster Tier</button>
       <button class="tab-btn" data-tab="timeseries">Time Series Features</button>
       <button class="tab-btn" data-tab="geospatial">Geospatial</button>
+      <button class="tab-btn" data-tab="postgis">PostGIS vs MongoDB</button>
       <button class="tab-btn" data-tab="realtime">Real-Time Processing</button>
     </div>
 
@@ -976,6 +977,120 @@ const skipAlerts = db.alerts.find({
           <tr><td>Operational overhead</td><td>DBA team for maintenance</td><td>Fully managed — automated ops</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- ======================= TAB: POSTGIS vs MONGODB ======================= -->
+    <div class="tab-content" id="tab-postgis">
+      <h2>PostGIS vs MongoDB for Geometry</h2>
+      <p class="section-intro">PostGIS has a larger catalogue of GIS functions than MongoDB — this is not disputed. But at KSRTC scale (70M GPS pings/day, ~1,000 msg/sec, ~800 point-in-polygon checks/sec, &lt; 5s GPS-to-dashboard SLA), the deciding factor is <strong>not "how many functions exist" — it is "where the geometry is computed."</strong></p>
+
+      <div class="disclaimer-box">
+        <strong>One-line verdict:</strong> MongoDB (coarse filter) + precomputed route buffers + in-memory Turf/Shapely (hot path) meets every KSRTC GIS KPI at scale. Because the customer needs ETA <em>without</em> real-time traffic, 100% of GIS scope is simple in-memory geometry — with PostGIS-grade GEOS correctness via Shapely, zero round-trips, and horizontal scalability. PostGIS at DB level changes none of the math; it only puts the CPU on the wrong side of the network.
+      </div>
+
+      <h3>1. Does KSRTC VTMS Need Advanced GIS?</h3>
+      <p>No. With the customer needing <strong>ETA but no real-time traffic</strong>, the entire scope is <em>simple</em> geometry — point-in-polygon, point-to-line, nearest-neighbor, and linear referencing. The operations PostGIS is class-leading at (topology, overlay/union, isochrones, road-network routing) are <strong>not in any KSRTC KPI or functionality</strong>.</p>
+      <ul class="check-list">
+        <li>800 PiP geofence checks/s — point-in-polygon — <strong>simple</strong></li>
+        <li>Route corridor deviation (100 m) — point-in-buffer — <strong>simple</strong></li>
+        <li>Stop arrival / departure / skip — point-in-circle + linear referencing — <strong>simple</strong></li>
+        <li>Nearest bus stop — k-NN — <strong>simple</strong></li>
+        <li>ETA/ETD cascade (no live traffic) — linear referencing + speed-based time — <strong>simple</strong></li>
+        <li>Overspeed / harsh braking / rash turning — speed &amp; heading deltas — <strong>kinematics, not geometry</strong></li>
+      </ul>
+
+      <h3>2. The Decisive Technical Fact</h3>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🧬 Same geometry library</h4>
+          <p><strong>PostGIS</strong> geometry quality comes from the <code>GEOS</code> library.</p>
+          <p><strong>Shapely</strong> (in-memory, Python) wraps the <em>same</em> <code>GEOS</code> library. <strong>Turf.js</strong> provides equivalent JS geometry.</p>
+          <p>You get <strong>PostGIS-grade geometric correctness in application memory — with zero DB round-trip</strong>. "PostGIS is native" buys no correctness you can't already get in-memory; it only changes where the CPU runs.</p>
+        </div>
+      </div>
+
+      <h3>3. Head-to-Head at the Three Tiers</h3>
+      <table class="arch-table">
+        <thead><tr><th>Tier</th><th>Workload</th><th>MongoDB-at-DB</th><th>PostGIS-at-DB</th><th>Winner / Recommended</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Hot path</strong> (per ping, 800–1,000/s)</td><td>PiP, deviation, ETA cascade, kinematics</td><td><code>$geoWithin</code> (round-trip)</td><td><code>ST_Contains</code> (round-trip)</td><td><strong>In-memory Turf/Shapely</strong> — microseconds, no round-trip. No DB belongs in a 1,000/s loop.</td></tr>
+          <tr><td><strong>Coarse filter</strong> (over 70M docs)</td><td>candidate selection</td><td><code>2dsphere</code> ✅</td><td>GiST ✅</td><td><strong>MongoDB <code>2dsphere</code></strong> (tie on tech; data lives in Mongo)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4. Why DB-Level Loses the Hot Path (both Mongo and PostGIS)</h3>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🔁 Round-trip tax</h4>
+          <p>1,000 msg/s × ~800 PiP/s in the DB = thousands of networked spatial queries/second, each paying network + planner + connection cost. In-memory pays none of that.</p>
+        </div>
+        <div class="feature-card">
+          <h4>♻️ Static geometry, wastefully recomputed</h4>
+          <p>Geofences and route lines rarely change. Workers load them <strong>once</strong> into memory and reuse across millions of pings. The DB re-reads/re-plans every query.</p>
+        </div>
+        <div class="feature-card">
+          <h4>📈 Vertical vs. horizontal scaling</h4>
+          <p>DB-side compute concentrates on one primary's CPU. In-memory workers are <strong>stateless and scale out linearly</strong> (partitioned by vehicle/depot hash) — also satisfying zero-SPOF and &lt; 1h resumption.</p>
+        </div>
+      </div>
+      <p style="color:#b0bec5;font-size:0.9rem;">This is an <strong>architecture principle, not a MongoDB limitation</strong> — PostGIS at DB level hits the same wall on the same hot path.</p>
+
+      <h3>5. Per-Function: MongoDB native vs. PostGIS native vs. Recommended</h3>
+      <table class="arch-table">
+        <thead><tr><th>GIS function</th><th>MongoDB native</th><th>PostGIS native</th><th>Recommended approach for KSRTC</th></tr></thead>
+        <tbody>
+          <tr><td>Point-in-polygon (geofence)</td><td><code>$geoWithin</code> + <code>2dsphere</code></td><td><code>ST_Contains</code> + GiST</td><td><strong>In-memory Turf, hot path.</strong> Geofences cached in worker memory at startup, refreshed on change. An <strong>H3 cell-index / rbush bounding-box pre-filter</strong> narrows ~hundreds of fences to 1–2 candidates, then exact <code>turf.booleanPointInPolygon</code> confirms — O(log n) per ping, no DB call. Sustains 800+ checks/s.</td></tr>
+          <tr><td>Nearest bus stop (k-NN)</td><td><code>$nearSphere</code></td><td><code>ST_DWithin</code> + KNN GiST</td><td><strong>MongoDB <code>$nearSphere</code>, on-demand.</strong> Passenger-app query (not per-ping), so a DB round-trip is fine. <code>2dsphere</code> index returns distance-sorted stops in &lt; 3 ms. Cache popular query tiles for repeat lookups.</td></tr>
+          <tr><td>Point-to-point distance</td><td><code>$geoNear</code></td><td><code>ST_Distance</code></td><td><strong>In-memory <code>turf.distance</code> (Haversine).</strong> Pure arithmetic on two coordinates — compute inline in the worker; no index or DB needed.</td></tr>
+          <tr><td>Corridor deviation (100 m)</td><td><code>$geoWithin</code> on buffer</td><td><code>ST_DWithin</code></td><td><strong>Precompute buffer offline → in-memory PiP.</strong> Buffer each route once into a corridor polygon; at runtime a fast point-in-polygon test flags off-corridor pings. Only when <em>outside</em> do we compute exact distance via <code>turf.pointToLineDistance</code> for the alert payload.</td></tr>
+          <tr><td>Buffer generation</td><td>❌</td><td><code>ST_Buffer</code></td><td><strong>Offline, once per route.</strong> Generate with <code>turf.buffer</code> / Shapely at route-onboarding time, store the corridor polygon in MongoDB with a <code>2dsphere</code> index. Never runs on the hot path.</td></tr>
+          <tr><td>ETA/ETD (no traffic)</td><td>❌</td><td><code>ST_LineLocatePoint</code></td><td><strong>In-memory linear referencing (already in POC).</strong> Snap bus to route with <code>turf.nearestPointOnLine</code> → distance-along-route; remaining distance ÷ effective speed → ETA, cascaded to downstream stops with dwell. Optional accuracy boost: historical average segment speeds precomputed offline from KSRTC's own 90-day GPS history. No routing engine, no traffic feed.</td></tr>
+          <tr><td>Bearing/heading (rash turn)</td><td>❌</td><td><code>ST_Azimuth</code></td><td><strong>In-memory <code>turf.bearing</code> + ring buffer.</strong> Compare heading between consecutive pings in the per-vehicle window; large heading delta over short time = rash turn. Pure in-process math.</td></tr>
+          <tr><td>Stop arrival/departure/skip</td><td>partial <code>$geoWithin</code></td><td><code>ST_DWithin</code> + linear-ref</td><td><strong>In-memory sequence-aware state machine.</strong> Per-vehicle: a 50 m stop circle + speed≈0 = arrival; leaving after dwell = departure; <strong>skip = distance-along-route passes a stop's position without an arrival event</strong>. Sequence comes free from the cached ordered stop list.</td></tr>
+          <tr><td>Harsh braking/accel (windowed)</td><td><code>$setWindowFields</code> (DB)</td><td><code>LAG</code>/<code>LEAD</code> (DB)</td><td><strong>In-memory per-vehicle ring buffer.</strong> Keep last N pings per vehicle; deceleration/acceleration from speed deltas over time — O(1) per ping, no DB window-function call on the hot path.</td></tr>
+          <tr><td>Line simplification (playback)</td><td>❌</td><td><code>ST_Simplify</code></td><td><strong>In-memory / offline <code>turf.simplify</code>.</strong> Downsample stored tracks (Douglas–Peucker) so 2×/4×/10× playback renders smoothly without shipping every raw vertex to the browser.</td></tr>
+          <tr><td>Coarse filter over 70M docs</td><td><code>2dsphere</code></td><td>GiST</td><td><strong>MongoDB <code>2dsphere</code>, store of record.</strong> Use index-backed <code>$geoWithin</code>/<code>$geoIntersects</code> to reduce millions of stored pings to a lean candidate set, then hand off to in-memory geometry for exact math.</td></tr>
+          <tr><td>16 reports / rollups</td><td>aggregation + <code>$setWindowFields</code></td><td>SQL + window fns</td><td><strong>MongoDB aggregation, offline/batch.</strong> Precompute into materialized summary collections (nightly + incremental from the stream). Set-based history math belongs in the DB — off the real-time path entirely.</td></tr>
+        </tbody>
+      </table>
+      <p style="color:#78909c;font-size:0.82rem;">❌ = not available natively at DB level in that engine.</p>
+
+      <h3>6. Aggregations &amp; Window Functions "In Memory"</h3>
+      <p>Neither MongoDB <code>$setWindowFields</code> nor PostgreSQL <code>LAG</code>/<code>LEAD</code> run in app memory — both execute <strong>inside the DB</strong>. And you don't need them there for the hot path: per-ping windowed signals (harsh braking/accel/rash turn) use an <strong>in-memory per-vehicle ring buffer</strong> (O(1)/ping). The DB's aggregation pipeline and window functions are reserved for <strong>alerts enrichment and the 16 reports — offline / near-real-time, off the per-ping path</strong>.</p>
+
+      <h4 style="color:#4fc3f7;margin-top:1.2rem;">How they apply to Alerts</h4>
+      <p style="color:#b0bec5;font-size:0.9rem;">The hot path <em>raises</em> raw alerts in-memory (overspeed, geofence, deviation, harsh events) for the &lt; 5s SLA. Aggregation + window functions then <em>refine and contextualise</em> them just behind the live edge:</p>
+      <table class="arch-table">
+        <thead><tr><th>Alert task</th><th>Operator</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>De-duplicate / debounce flapping alerts</td><td><code>$setWindowFields</code> + <code>$group</code></td><td>Collapse repeated overspeed pings for the same vehicle within a rolling window into a single sustained alert (avoids alert storms).</td></tr>
+          <tr><td>Sustained vs. momentary breach</td><td><code>$setWindowFields</code> (<code>$avg</code>/<code>$max</code> over time window)</td><td>Confirm an alert only if the condition holds across N consecutive pings — e.g. average speed over the last 30 s &gt; limit, not a single GPS spike.</td></tr>
+          <tr><td>Schedule adherence escalation (5 min warn / 10 min critical)</td><td><code>$setWindowFields</code> + <code>$lookup</code></td><td>Compare actual vs. scheduled timing cumulatively and raise the severity tier as deviation grows.</td></tr>
+          <tr><td>Unauthorized stop (&gt; 3 min)</td><td><code>$setWindowFields</code> (rolling dwell)</td><td>Accumulate stationary dwell time outside scheduled stops; fire once the rolling window exceeds the threshold.</td></tr>
+          <tr><td>Rank / prioritise active alerts per depot</td><td><code>$setWindowFields</code> + <code>$rank</code>/<code>$denseRank</code></td><td>Order open alerts by severity and age within each depot for the control-room dashboard.</td></tr>
+        </tbody>
+      </table>
+
+      <h4 style="color:#4fc3f7;margin-top:1.2rem;">How they apply to the 16 Reports</h4>
+      <p style="color:#b0bec5;font-size:0.9rem;">Reports are set-based history math — exactly what the aggregation pipeline and window functions are built for. Precompute into materialized summary collections (nightly + incremental):</p>
+      <table class="arch-table">
+        <thead><tr><th>Report</th><th>Operator</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Vehicle Tracking Summary, Depot/Division-wise Status</td><td><code>$group</code> + <code>$count</code> + <code>$avg</code></td><td>Roll up distance, running hours, idle time, average speed per vehicle / depot / division.</td></tr>
+          <tr><td>Schedule Adherence</td><td><code>$setWindowFields</code> + <code>$lookup</code></td><td>Cumulative actual-vs-scheduled delay across the trip's stop sequence; on-time %.</td></tr>
+          <tr><td>Overspeeding / Harsh Braking Violations</td><td><code>$match</code> + <code>$group</code> + <code>$setWindowFields</code></td><td>Count and rank violation events per vehicle/route over the period; peak and frequency.</td></tr>
+          <tr><td>Breakdown Incidents</td><td><code>$group</code> + <code>$setWindowFields</code> (gap detection)</td><td>Derive downtime duration and MTBF from state transitions and ping gaps.</td></tr>
+          <tr><td>Bus Stop Skipping / Unauthorized Stop</td><td><code>$group</code> + <code>$lookup</code></td><td>Tally skipped/unauthorized stops against the schedule master per trip.</td></tr>
+          <tr><td>Route Playback &amp; trend reports</td><td><code>$setWindowFields</code> (<code>$shift</code> / moving avg)</td><td>Order pings, compute segment speeds and smoothed trends for the timeline.</td></tr>
+          <tr><td>GPS Device Master / Mapping History / Panic Mapping</td><td><code>$group</code> + <code>$lookup</code> + <code>$sort</code></td><td>Latest mapping per device and full change history over time.</td></tr>
+        </tbody>
+      </table>
+      <p style="color:#78909c;font-size:0.82rem;">Both run in the DB on stored data — never in the 1,000 msg/s per-ping loop. Alerts use them just behind the live edge (seconds); reports use them on schedule (batch/near-real-time).</p>
+
+      <h3>7. Bottom Line</h3>
+      <div class="disclaimer-box">
+        <strong>MongoDB + precomputed route buffers + in-memory Turf/Shapely meets every KSRTC GIS KPI at scale.</strong> Because the customer needs ETA without real-time traffic, 100% of GIS scope is simple in-memory geometry — with PostGIS-grade GEOS correctness via Shapely, zero round-trips, and horizontal scalability. PostGIS at DB level changes none of the math; it only puts the CPU on the wrong side of the network. PostGIS stays as optional Tier-3 headroom that current scope does not require.
+      </div>
     </div>
 
     <hr style="border-color:#2a3a4a;margin:3rem 0;">
